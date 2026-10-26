@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+.expo/
+.env
+.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+coverage/
+*.tsbuildinfo
+.local/

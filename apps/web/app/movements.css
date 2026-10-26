@@ -1,0 +1,183 @@
+.movements-panel {
+  margin-top: 22px;
+  display: grid;
+  gap: 13px;
+}
+.movement-passenger-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11px;
+  color: #526d86;
+}
+.movement-passenger-status > span {
+  font-size: 9px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #f5ecd4;
+  color: #8c713b;
+  margin-left: auto;
+}
+.movement-card {
+  border: 1px solid #dce6ef;
+  border-radius: 13px;
+  padding: 16px;
+  background: white;
+  min-width: 0;
+}
+.movement-card.informed {
+  border-color: #dacba6;
+}
+.movement-card.validated {
+  border-color: #c9dece;
+  background: #f7fbf8;
+}
+.movement-card.under-verification {
+  border-color: #dacba6;
+  background: #fffbf2;
+}
+.movement-card.under-verification > header {
+  color: #946b3c;
+}
+.movement-card > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: #718ba2;
+}
+.movement-card > header div {
+  display: grid;
+  gap: 7px;
+}
+.movement-card > header span {
+  font-size: 9px;
+  color: #8496a7;
+}
+.movement-card > header strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #536f88;
+}
+.movement-card.validated > header strong {
+  color: #48735a;
+}
+.movement-target {
+  font-size: 9px;
+  color: #8a9baa;
+  line-height: 1.8;
+  margin-top: 11px;
+}
+.movement-sides {
+  display: grid;
+  gap: 11px;
+  margin-top: 15px;
+}
+.movement-sides > div {
+  display: flex;
+  gap: 14px;
+  border-top: 1px solid #edf1f5;
+  padding-top: 10px;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.movement-sides > div > span {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  min-width: 92px;
+  color: #8c9baa;
+}
+.movement-sides .confirmed > span {
+  color: #5f876a;
+}
+.movement-sides .under-verification > span,
+.movement-sides .under-verification small:first-of-type {
+  color: #946b3c;
+}
+.movement-sides .invalidated > span,
+.movement-sides .invalidated small:first-of-type {
+  color: #6c7280;
+}
+.movement-sides p {
+  color: #8a9baa;
+  min-width: 0;
+}
+.movement-sides strong {
+  display: block;
+  font-weight: 600;
+  color: #657c90;
+  font-size: 10px;
+}
+.movement-sides small {
+  display: block;
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+.movement-missing {
+  font-size: 9px;
+  color: #a08754;
+  margin-top: 14px;
+}
+.movement-card > .button {
+  margin-top: 15px;
+  width: 100%;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.movement-blocked {
+  font-size: 9px;
+  line-height: 1.9;
+  color: #92a0ad;
+  margin-top: 12px;
+}
+.movement-issue {
+  background: #fff4e3;
+  border: 1px solid #edddbd;
+  border-radius: 10px;
+  padding: 14px;
+  color: #9a7841;
+  font-size: 10px;
+  line-height: 1.9;
+}
+.movement-issue p {
+  font-size: 10px;
+  margin-top: 5px;
+}
+.movement-issue small {
+  font-size: 9px;
+}
+.trip-passenger .movement-passenger-status > strong {
+  font-size: 11px;
+}
+.movement-issue strong {
+  font-size: 10px;
+}
+@media (max-width: 560px) {
+  .movement-card {
+    padding: 13px;
+  }
+  .movement-sides > div {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .movement-sides > div > span {
+    font-size: 10px;
+  }
+  .movement-card > .button {
+    font-size: 10px;
+    padding: 11px;
+  }
+  .movement-passenger-status > span {
+    margin-left: 0;
+  }
+  .movement-target {
+    font-size: 8px;
+  }
+  .movement-sides small {
+    font-size: 9px;
+  }
+}

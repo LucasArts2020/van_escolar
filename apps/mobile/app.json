@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Caminho",
+    "slug": "caminho-escolar",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "caminho",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "br.com.caminho.escolar"
+    },
+    "android": { "package": "br.com.caminho.escolar" },
+    "plugins": ["expo-secure-store", "expo-notifications"]
+  }
+}

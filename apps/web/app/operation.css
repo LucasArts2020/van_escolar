@@ -1,0 +1,83 @@
+.operation-root {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.operation-root .panel {
+  min-width: 0;
+  padding: 24px;
+}
+.operation-root h2 {
+  margin: 16px 0;
+}
+.operation-root h3 {
+  margin: 0 0 16px;
+}
+.operation-root p,
+.operation-root li {
+  color: #59645c;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.operation-root ol {
+  padding-left: 22px;
+}
+.operation-root li {
+  padding-left: 4px;
+  margin-bottom: 14px;
+}
+.operation-root .operation-status {
+  color: #755522;
+  background: #fcf0d6;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.operation-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.operation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.operation-actions button {
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.operation-decisions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.operation-decisions article {
+  border: 1px solid #e2e6dc;
+  border-radius: 14px;
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+.operation-decisions small {
+  color: #756344;
+}
+.operation-decisions h4 {
+  margin: 10px 0;
+}
+.operation-decisions p {
+  margin-bottom: 0;
+}
+@media (max-width: 1000px) {
+  .operation-decisions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 650px) {
+  .operation-columns,
+  .operation-decisions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .operation-root .panel {
+    padding: 18px;
+  }
+}

@@ -1,0 +1,227 @@
+.history-root {
+  display: grid;
+  gap: 20px;
+  color: #465b70;
+  min-width: 0;
+}
+.history-filters {
+  display: flex;
+  gap: 15px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.history-root label {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #526b83;
+}
+.history-root input,
+.history-root select,
+.history-root textarea {
+  font: inherit;
+  border: 1px solid #dce5ee;
+  border-radius: 9px;
+  background: white;
+  color: #43566d;
+  padding: 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.history-root select {
+  min-width: 0;
+  width: 100%;
+}
+.history-root textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+}
+.history-root input:focus,
+.history-root select:focus,
+.history-root textarea:focus {
+  outline: 2px solid #aabfd2;
+  outline-offset: 2px;
+}
+.history-root .button {
+  background: #43566d;
+  white-space: normal;
+  line-height: 1.6;
+}
+.history-root .button:hover {
+  background: #33475d;
+}
+.history-root p {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.history-list {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+}
+.history-list article {
+  border: 1px solid #dce5ee;
+  border-radius: 12px;
+  background: #f7fafc;
+  padding: 16px;
+  min-width: 0;
+}
+.history-open {
+  display: grid;
+  text-align: left;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 10px;
+}
+.history-open span {
+  font-size: 12px;
+}
+.history-open small {
+  font-size: 11px;
+  color: #70869b;
+}
+.history-detail {
+  min-width: 0;
+}
+.history-detail > .eyebrow {
+  display: block;
+  margin-top: 20px;
+}
+.history-detail h3 {
+  font-size: 17px;
+  margin: 25px 0 15px;
+}
+.history-detail h4 {
+  font-size: 14px;
+}
+.history-detail small {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  display: block;
+  line-height: 1.8;
+}
+.history-confirmations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.history-confirmations article,
+.history-correction {
+  border: 1px solid #dce5ee;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 12px 0;
+  background: #f8fbfd;
+  min-width: 0;
+  font-size: 12px;
+}
+.history-state {
+  color: #946b3c;
+}
+.history-form {
+  min-width: 0;
+  display: grid;
+  gap: 15px;
+  padding: 20px;
+  margin: 20px 0;
+  border: 1px solid #dce5ee;
+  border-radius: 12px;
+  background: #f2f6f9;
+  font-size: 12px;
+}
+.history-form h3,
+.history-form h4 {
+  margin: 0;
+}
+.history-root .history-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  line-height: 1.8;
+}
+.history-check input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: #23705b;
+}
+.history-exception {
+  padding: 16px;
+  border: 1px solid #e2cfab;
+  border-radius: 11px;
+  background: #fff7e9;
+  color: #735b38;
+  font-size: 12px;
+  margin: 16px 0;
+  line-height: 1.8;
+}
+.history-settings summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+.history-settings p {
+  font-size: 12px;
+}
+.history-settings article {
+  border-top: 1px solid #dce5ee;
+  padding: 18px 0;
+}
+.history-timeline {
+  margin-top: 25px;
+}
+.history-timeline summary {
+  cursor: pointer;
+  font-size: 13px;
+  padding-bottom: 15px;
+}
+.history-timeline article {
+  border-left: 2px solid #cad8e6;
+  padding: 10px 18px;
+  margin-left: 4px;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.history-timeline time {
+  font-size: 10px;
+  color: #70869b;
+}
+.history-timeline p {
+  margin: 0;
+}
+.history-root .planning-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .history-confirmations {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .history-filters > label:nth-child(3),
+  .history-filters > button {
+    grid-column: 1/-1;
+  }
+  .history-form {
+    padding: 15px;
+  }
+  .history-form .planning-actions {
+    display: grid;
+  }
+  .history-detail h3 {
+    font-size: 15px;
+  }
+}

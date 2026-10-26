@@ -1,0 +1,231 @@
+.planning-root {
+  display: grid;
+  gap: 20px;
+}
+.planning-root select,
+.planning-root textarea {
+  width: 100%;
+  border: 1px solid #dce3dc;
+  border-radius: 7px;
+  padding: 11px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  margin-top: 9px;
+}
+.planning-root textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+.planning-date-controls {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.planning-date-controls label {
+  min-width: 210px;
+  margin-bottom: 0;
+}
+.planning-date-controls > .text-button {
+  align-self: center;
+  margin-top: 20px;
+}
+.planning-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.planning-counts > div {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 17px;
+}
+.planning-counts strong {
+  display: block;
+  font-size: 25px;
+  font-weight: 500;
+}
+.planning-counts span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 5px;
+}
+.planning-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.planning-card {
+  min-width: 0;
+}
+.planning-card .panel-heading {
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+.planning-card h3 {
+  font-size: 17px;
+  margin-top: 10px;
+}
+.planning-card .panel-heading p {
+  font-size: 10px;
+  line-height: 1.8;
+}
+.planning-card .panel-heading > .registry-badge {
+  margin-top: 0;
+  max-width: 130px;
+}
+.planning-direction {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--green);
+}
+.planning-deadline {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #829474;
+  font-size: 10px;
+  line-height: 1.8;
+  padding: 13px 0;
+  border-block: 1px solid var(--line);
+}
+.planning-deadline small {
+  display: block;
+  color: #a0aa93;
+  font-size: 9px;
+}
+.planning-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.planning-secondary {
+  background: #f0f3e8;
+  border: 1px solid #dce5d2;
+  color: #648157;
+  padding: 11px 15px;
+  min-height: 42px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.planning-reason {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 20px 0 0;
+}
+.planning-request {
+  background: #f7f3e4;
+  border: 1px solid #ece4c8;
+  border-radius: 7px;
+  padding: 15px;
+  color: #8e793f;
+  line-height: 1.8;
+  margin-top: 15px;
+}
+.planning-request strong {
+  font-size: 11px;
+}
+.planning-request p {
+  font-size: 11px;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.planning-request small {
+  display: block;
+  font-size: 10px;
+  margin-top: 7px;
+}
+.planning-history {
+  padding: 14px;
+  background: #eef4e8;
+  border-radius: 7px;
+  margin-top: 15px;
+  color: #789261;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.planning-history p {
+  margin-top: 5px;
+}
+.planning-withdraw {
+  margin-top: 17px;
+}
+.planning-checkbox {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--green);
+  margin: 0;
+  cursor: pointer;
+}
+.planning-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #8f9f7e;
+  line-height: 1.8;
+  font-size: 10px;
+}
+.planning-card .registry-note {
+  font-size: 10px;
+}
+@media (max-width: 1000px) {
+  .planning-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .planning-cards {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .planning-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .planning-counts > div {
+    padding: 13px;
+  }
+  .planning-counts span {
+    font-size: 9px;
+  }
+  .planning-date-controls {
+    gap: 14px;
+  }
+  .planning-date-controls label {
+    width: 100%;
+    min-width: 0;
+  }
+  .planning-date-controls > .text-button {
+    margin-top: 0;
+  }
+  .planning-card .panel-heading {
+    gap: 10px;
+  }
+  .planning-card h3 {
+    font-size: 15px;
+  }
+  .planning-card .panel-heading > .registry-badge {
+    font-size: 8px;
+    max-width: 100px;
+  }
+  .planning-direction {
+    font-size: 7px;
+  }
+  .planning-card .panel-heading p {
+    font-size: 9px;
+  }
+  .planning-actions .button {
+    font-size: 11px;
+  }
+  .planning-root {
+    min-width: 0;
+  }
+}
