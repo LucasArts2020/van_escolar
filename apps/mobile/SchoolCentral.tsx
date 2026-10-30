@@ -1,7 +1,13 @@
+import { schoolPlanningLabel } from "../shared/school-day";
+import {
+  movementPresentation,
+  sidePresentation,
+} from "../shared/movement-presentation";
 import { useEffect, useRef, useState } from "react";
 import {
   AppState,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +18,7 @@ import { schoolPlanningLabels } from "../shared/school-day";
 import type { JourneyTarget } from "../shared/navigation";
 import type { MovementConfirmationResult, Passenger } from "../shared/trips";
 import { alertKinds, alertLevels } from "../shared/alerts";
+import { theme } from "./theme";
 
 type Client = <T>(path: string, body?: unknown) => Promise<T>;
 type RowState = { busy?: boolean; uncertain?: boolean; error?: string };
@@ -296,88 +303,122 @@ export default function SchoolCentral({
   );
   return (
     <View style={s.root}>
-      <View style={s.tools}>
-        <Button
-          label="Receber na escola"
-          selected={direction === "OUTBOUND"}
-          onPress={() => setDirection("OUTBOUND")}
+      <View style={s.card}>
+        <View style={s.segmented}>
+          <Button
+            label="Receber na escola"
+            tab
+            selected={direction === "OUTBOUND"}
+            onPress={() => setDirection("OUTBOUND")}
+          />
+          <Button
+            label="Entregar ao transporte"
+            tab
+            selected={direction === "RETURN"}
+            onPress={() => setDirection("RETURN")}
+          />
+        </View>
+        <View style={s.tools}>
+          <Button label="Hoje" onPress={() => day && setDate(day.today)} />
+          <Button label="Amanhã" onPress={() => day && setDate(day.tomorrow)} />
+          <Button label="Atualizar" onPress={() => void read()} />
+        </View>
+        <Text style={s.label}>Dia de trabalho (AAAA-MM-DD)</Text>
+        <TextInput
+          accessibilityLabel="Data"
+          style={s.input}
+          value={dateDraft}
+          onChangeText={setDateDraft}
+          onBlur={() => {
+            if (
+              /^\d{4}-\d{2}-\d{2}$/.test(dateDraft) &&
+              !Number.isNaN(Date.parse(dateDraft))
+            )
+              setDate(dateDraft);
+            else {
+              setDateDraft(date);
+              setError("Informe uma data no formato AAAA-MM-DD.");
+            }
+          }}
         />
-        <Button
-          label="Entregar ao transporte"
-          selected={direction === "RETURN"}
-          onPress={() => setDirection("RETURN")}
+        <Text style={s.label}>Buscar criança</Text>
+        <TextInput
+          accessibilityLabel="Buscar criança"
+          placeholder="Nome ou identificação"
+          placeholderTextColor={theme.color.muted}
+          style={s.input}
+          value={query}
+          onChangeText={setQuery}
         />
+        <Text style={s.label}>Transporte</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.tools}
+        >
+          <Button
+            label="Todos os transportes"
+            selected={!transport}
+            onPress={() => setTransport("")}
+          />
+          {[
+            ...new Map(
+              day?.rows.map((r) => [r.transport_id, r.transport_name]),
+            ).entries(),
+          ].map(([id, name]) => (
+            <Button
+              key={id}
+              label={name}
+              selected={transport === id}
+              onPress={() => setTransport(id)}
+            />
+          ))}
+        </ScrollView>
+        <Text style={s.label}>Van</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.tools}
+        >
+          <Button
+            label="Todas as vans"
+            selected={!vehicle}
+            onPress={() => setVehicle("")}
+          />
+          {[
+            ...new Map(
+              day?.trips
+                .filter((trip) => trip.direction === direction)
+                .map((trip) => [trip.vehicle_id, trip]),
+            ).values(),
+          ].map((trip) => (
+            <Button
+              key={trip.vehicle_id}
+              label={`${trip.vehicle_name} · ${trip.vehicle_plate}`}
+              selected={vehicle === trip.vehicle_id}
+              onPress={() => setVehicle(trip.vehicle_id)}
+            />
+          ))}
+        </ScrollView>
       </View>
-      <View style={s.tools}>
-        <Button label="Hoje" onPress={() => day && setDate(day.today)} />
-        <Button label="Amanhã" onPress={() => day && setDate(day.tomorrow)} />
-        <Button label="Atualizar" onPress={() => void read()} />
-      </View>
-      <Text style={s.note}>Data (AAAA-MM-DD)</Text>
-      <TextInput
-        accessibilityLabel="Data"
-        style={s.input}
-        value={dateDraft}
-        onChangeText={setDateDraft}
-        onBlur={() => {
-          if (
-            /^\d{4}-\d{2}-\d{2}$/.test(dateDraft) &&
-            !Number.isNaN(Date.parse(dateDraft))
-          )
-            setDate(dateDraft);
-          else {
-            setDateDraft(date);
-            setError("Informe uma data no formato AAAA-MM-DD.");
+      {!!day?.pendingAcknowledgements && (
+        <Pressable
+          accessibilityRole="button"
+          style={{ minHeight: 48, padding: 14 }}
+          onPress={() =>
+            onOpenTarget({
+              view: "alerts",
+              contextId,
+              date,
+              awaitingAcknowledgement: true,
+            })
           }
-        }}
-      />
-      <TextInput
-        accessibilityLabel="Buscar criança"
-        placeholder="Buscar criança ou identificador"
-        style={s.input}
-        value={query}
-        onChangeText={setQuery}
-      />
-      <View style={s.tools}>
-        <Button
-          label="Todos os transportes"
-          selected={!transport}
-          onPress={() => setTransport("")}
-        />
-        {[
-          ...new Map(
-            day?.rows.map((r) => [r.transport_id, r.transport_name]),
-          ).entries(),
-        ].map(([id, name]) => (
-          <Button
-            key={id}
-            label={name}
-            selected={transport === id}
-            onPress={() => setTransport(id)}
-          />
-        ))}
-      </View>
-      <View style={s.tools}>
-        <Button
-          label="Todas as vans"
-          selected={!vehicle}
-          onPress={() => setVehicle("")}
-        />
-        {[
-          ...new Map(
-            day?.trips
-              .filter((trip) => trip.direction === direction)
-              .map((trip) => [trip.vehicle_id, trip]),
-          ).values(),
-        ].map((trip) => (
-          <Button
-            key={trip.vehicle_id}
-            label={`${trip.vehicle_name} · ${trip.vehicle_plate}`}
-            selected={vehicle === trip.vehicle_id}
-            onPress={() => setVehicle(trip.vehicle_id)}
-          />
-        ))}
-      </View>
+        >
+          <Text>
+            Ciências de urgências pendentes: {day.pendingAcknowledgements}
+          </Text>
+        </Pressable>
+      )}
       {loading && <Text style={s.note}>Carregando o dia escolar…</Text>}
       {!!error && (
         <Text accessibilityRole="alert" style={s.error}>
@@ -438,9 +479,7 @@ export default function SchoolCentral({
                 ? `${trip.vehicle_name} · ${trip.vehicle_plate} · ${trip.driver_name}`
                 : `${row.transport_name} · van a definir`}
             </Text>
-            <Text style={s.status}>
-              {schoolPlanningLabels[row.planning.status]}
-            </Text>
+            <Text style={s.status}>{schoolPlanningLabel(row.planning)}</Text>
             {!!row.planning.pendingChange && (
               <Text style={s.warning}>
                 Alteração aguardando transporte. Situação vigente mantida.
@@ -460,17 +499,26 @@ export default function SchoolCentral({
             {passenger && (
               <>
                 <Text style={s.note}>
-                  {school
-                    ? `Escola confirmou por ${school.actorName}${driver ? "" : " · aguardando motorista"}`
-                    : "Escola ainda não confirmou"}
+                  {passenger.exceptionalResolution
+                    ? movementPresentation(
+                        passenger,
+                        movement!.kind,
+                        "COUNTERPART",
+                      ).status
+                    : sidePresentation(movement, "COUNTERPART") +
+                      (school &&
+                      !driver &&
+                      school.correctionStatus !== "PENDING"
+                        ? " · aguardando motorista"
+                        : "")}
                 </Text>
                 <Text style={s.note}>
-                  {driver
-                    ? `Motorista confirmou por ${driver.actorName}`
-                    : "Motorista ainda não confirmou"}
+                  {passenger.exceptionalResolution
+                    ? "Contabilização excepcional não equivale às duas confirmações normais."
+                    : sidePresentation(movement, "DRIVER")}
                 </Text>
-                {!!passenger.issues.filter((i) => i.status === "OPEN")
-                  .length && (
+                {movementPresentation(passenger, movement!.kind, "COUNTERPART")
+                  .hasOccurrence && (
                   <Text style={s.warning}>
                     Há ocorrência aberta, independente das confirmações.
                   </Text>
@@ -483,11 +531,15 @@ export default function SchoolCentral({
                   ? "Registrando…"
                   : state.uncertain
                     ? "Verificar estado"
-                    : school
-                      ? "Escola já confirmou"
-                      : row.direction === "OUTBOUND"
-                        ? "Recebi na escola"
-                        : "Entreguei ao motorista"
+                    : passenger?.exceptionalResolution
+                      ? "Contabilização excepcional"
+                      : school
+                        ? school.correctionStatus === "PENDING"
+                          ? "Registro da escola sob correção"
+                          : "Escola já confirmou"
+                        : row.direction === "OUTBOUND"
+                          ? "Recebi na escola"
+                          : "Entreguei ao motorista"
               }
               disabled={
                 state.busy || (!state.uncertain && !movement?.canConfirm)
@@ -569,65 +621,121 @@ function Button({
   disabled = false,
   primary = false,
   selected = false,
+  tab = false,
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
   primary?: boolean;
   selected?: boolean;
+  tab?: boolean;
 }) {
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={tab ? "tab" : "button"}
       accessibilityState={{ disabled, selected }}
       onPress={() => {
         if (!disabled) onPress();
       }}
-      style={[
+      style={({ pressed }) => [
         s.button,
+        tab && s.segmentButton,
         (primary || selected) && s.primary,
+        pressed && !disabled && s.pressed,
         disabled && s.disabled,
       ]}
     >
-      <Text style={primary || selected ? s.white : s.buttonText}>{label}</Text>
+      <Text
+        style={[
+          primary || selected ? s.white : s.buttonText,
+          disabled && s.disabledText,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
 const s = StyleSheet.create({
-  root: { gap: 12 },
+  root: { gap: 16 },
   tools: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  segmented: {
+    flexDirection: "row",
+    gap: 5,
+    padding: 5,
+    backgroundColor: theme.color.background,
+    borderRadius: 16,
+  },
+  segmentButton: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    backgroundColor: "transparent",
+  },
+  label: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: theme.color.muted,
+  },
   input: {
-    backgroundColor: "white",
-    borderColor: "#d8e2dc",
+    backgroundColor: theme.color.background,
+    color: theme.color.ink,
+    fontSize: 14,
+    borderColor: theme.color.line,
     borderWidth: 1,
-    borderRadius: 10,
-    minHeight: 48,
-    padding: 12,
+    borderRadius: theme.radius.control,
+    minHeight: 50,
+    padding: 13,
   },
   card: {
-    backgroundColor: "white",
-    borderColor: "#dce5de",
+    backgroundColor: theme.color.surface,
+    borderColor: theme.color.line,
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    gap: 8,
+    borderRadius: theme.radius.card,
+    padding: 18,
+    gap: 10,
   },
-  name: { fontSize: 17, fontWeight: "700", color: "#213b35" },
-  note: { fontSize: 12, color: "#536c61", lineHeight: 18 },
-  status: { color: "#23705b", fontWeight: "600", fontSize: 13 },
-  warning: { color: "#855c13", fontSize: 13 },
-  error: { color: "#a33131", fontSize: 13 },
+  name: {
+    fontSize: 19,
+    lineHeight: 26,
+    fontWeight: "700",
+    color: theme.color.ink,
+  },
+  note: { fontSize: 13, color: theme.color.muted, lineHeight: 20 },
+  status: {
+    color: theme.color.primary,
+    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  warning: { color: theme.color.warning, fontSize: 13, lineHeight: 20 },
+  error: { color: theme.color.danger, fontSize: 13, lineHeight: 20 },
   button: {
-    minHeight: 44,
-    paddingHorizontal: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: "#edf3ef",
+    borderRadius: theme.radius.control,
+    backgroundColor: theme.color.soft,
     justifyContent: "center",
     alignItems: "center",
   },
-  primary: { backgroundColor: "#23705b" },
-  disabled: { opacity: 0.55 },
-  buttonText: { color: "#23705b", fontWeight: "600", fontSize: 12 },
-  white: { color: "white", fontWeight: "600", fontSize: 13 },
+  primary: { backgroundColor: theme.color.primary },
+  disabled: { backgroundColor: theme.color.disabled },
+  disabledText: { color: theme.color.muted },
+  pressed: { opacity: 0.78 },
+  buttonText: {
+    color: theme.color.primary,
+    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  white: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+  },
 });

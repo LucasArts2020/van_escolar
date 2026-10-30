@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import GuardianDayCard from "./GuardianDayCard";
+import { groupAgenda } from "../shared/day-choice";
+import { planningLabel } from "../shared/planning-presentation";
 import AgendaCalendar from "./AgendaCalendar";
 import { createPlanningMaterializer } from "../shared/materialize-planning";
 import {
@@ -39,6 +42,7 @@ type Options = {
 type Day = { weekday: number; outbound: boolean; return: boolean };
 type Routine = { revision: number; days: Day[] };
 type Plan = {
+  operating_link_id: string;
   student_id: string;
   id: string;
   student_name: string;
@@ -68,6 +72,7 @@ type Board = {
     pending: number;
     confirmed: number;
     notUsing: number;
+    missingConfiguration: number;
     awaitingChanges: number;
   };
 };
@@ -139,13 +144,16 @@ export default function Planning({
     setCutoff(data.policy?.cutoff_time.slice(0, 5) || "18:00");
     setTimezone(data.policy?.timezone || "America/Sao_Paulo");
   }
+  const dateRef = useRef(date);
+  dateRef.current = date;
   async function loadBoard() {
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       if (options && (guardian || driver))
         await materializePlanning(date, options, (body) =>
           api("generate", body),
         );
-      setBoard(await api<Board>("day?date=" + date));
+      const result = await api<Board>("day?date=" + date);
+      if (dateRef.current === date) setBoard(result);
     } else throw new Error("Informe a data no formato AAAA-MM-DD.");
   }
   async function loadRoutine() {
@@ -389,6 +397,10 @@ export default function Planning({
                     [board.counts.pending, "Pendentes"],
                     [board.counts.confirmed, "Confirmados"],
                     [board.counts.notUsing, "Não utilizará"],
+                    [
+                      board.counts.missingConfiguration,
+                      "Previsão sem configuração",
+                    ],
                     [board.counts.awaitingChanges, "Em análise"],
                   ].map(([n, label]) => (
                     <View style={s.count} key={label}>
@@ -408,177 +420,198 @@ export default function Planning({
                   </Text>
                 </View>
               )}
-              {board.plans.map((p) => (
-                <View
-                  key={p.id}
-                  style={[
-                    s.agendaEvent,
-                    expanded === p.id && s.agendaEventExpanded,
-                  ]}
-                >
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: expanded === p.id }}
-                    accessibilityLabel={`${p.direction === "OUTBOUND" ? "Ida" : "Volta"} de ${p.student_name}. ${p.request_id ? "Alteração aguardando aceite" : labels[p.status]}`}
-                    onPress={() => setExpanded(expanded === p.id ? null : p.id)}
-                    style={s.agendaEventRow}
-                  >
-                    <View style={s.agendaEventIcon}>
-                      <Text style={s.agendaArrow}>
-                        {p.direction === "OUTBOUND" ? "↑" : "↓"}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.agendaMeta}>
-                        {p.direction === "OUTBOUND"
-                          ? "IDA · CASA → ESCOLA"
-                          : "VOLTA · ESCOLA → CASA"}
-                      </Text>
-                      <Text style={s.agendaEventTitle}>{p.student_name}</Text>
-                      <Text style={s.agendaEventStatus}>
-                        {p.request_id
-                          ? "Alteração aguardando aceite"
-                          : labels[p.status]}
-                      </Text>
-                    </View>
-                    <View style={s.agendaEventOpen}>
-                      <Text style={s.agendaOpenText}>
-                        {expanded === p.id ? "⌄" : "↗"}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  {expanded === p.id && (
-                    <View style={s.agendaDetail}>
-                      <Text style={s.direction}>
-                        {p.direction === "OUTBOUND"
-                          ? "IDA · CASA → ESCOLA"
-                          : "VOLTA · ESCOLA → CASA"}
-                      </Text>
-                      <Text style={s.title}>{p.student_name}</Text>
-                      <Text style={s.badge}>{labels[p.status]}</Text>
-                      <Text style={s.note}>
-                        {p.school_name}
-                        {"\n"}
-                        {p.transport_name}
-                        {"\n"}Cadastro {p.student_id.slice(-8)}
-                      </Text>
-                      <Text style={s.deadline}>
-                        Limite:{" "}
-                        {new Date(p.deadline_at).toLocaleString("pt-BR", {
-                          timeZone: p.timezone,
-                        })}
-                        {"\n"}
-                        {p.timezone.replaceAll("_", " ")}
-                      </Text>
-                      <Text style={s.note}>
-                        {p.routine_revision === null
-                          ? "Rotina ainda não configurada."
-                          : p.scheduled
-                            ? "Trecho previsto na rotina."
-                            : "Sem previsão na rotina."}
-                      </Text>
-                      {p.request_id && (
-                        <View style={s.request}>
-                          <Text style={s.strong}>
-                            Alteração aguardando aceite
-                          </Text>
-                          <Text style={s.note}>
-                            Pedido:{" "}
-                            {p.requested_usage ? "utilizará" : "não utilizará"}{" "}
-                            este trecho.
-                          </Text>
-                          <Text style={s.note}>{p.request_reason}</Text>
-                          <Text style={s.note}>
-                            Situação vigente: {labels[p.status]}
+              {guardian
+                ? groupAgenda(board.plans).map((g) => (
+                    <GuardianDayCard
+                      key={context.id + g.key}
+                      plans={g.plans}
+                      submit={(body) => api("day/respond", body)}
+                      refresh={loadBoard}
+                      withdraw={(p) => decide(p as Plan, "WITHDRAW")}
+                    />
+                  ))
+                : board.plans.map((p) => (
+                    <View
+                      key={p.id}
+                      style={[
+                        s.agendaEvent,
+                        expanded === p.id && s.agendaEventExpanded,
+                      ]}
+                    >
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: expanded === p.id }}
+                        accessibilityLabel={`${p.direction === "OUTBOUND" ? "Ida" : "Volta"} de ${p.student_name}. ${p.request_id ? planningLabel(p) + " · Alteração aguardando aceite" : planningLabel(p)}`}
+                        onPress={() =>
+                          setExpanded(expanded === p.id ? null : p.id)
+                        }
+                        style={s.agendaEventRow}
+                      >
+                        <View style={s.agendaEventIcon}>
+                          <Text style={s.agendaArrow}>
+                            {p.direction === "OUTBOUND" ? "↑" : "↓"}
                           </Text>
                         </View>
-                      )}
-                      {!p.request_id &&
-                        p.last_change &&
-                        decisions[p.last_change.status] && (
-                          <View style={s.history}>
-                            <Text style={s.strong}>
-                              {decisions[p.last_change.status]}
-                            </Text>
-                            {p.last_change.decisionNote && (
-                              <Text style={s.note}>
-                                {p.last_change.decisionNote}
-                              </Text>
-                            )}
-                          </View>
-                        )}
-                      {p.locked_at ? (
-                        <Text style={s.note}>
-                          Planejamento bloqueado pela operação.
-                        </Text>
-                      ) : p.service_date < p.today ? (
-                        <Text style={s.note}>
-                          Data passada · somente consulta.
-                        </Text>
-                      ) : guardian ? (
-                        p.request_id ? (
-                          p.can_withdraw && (
-                            <Action
-                              secondary
-                              busy={busy}
-                              title="Retirar pedido de alteração"
-                              onPress={() => decide(p, "WITHDRAW")}
-                            />
-                          )
-                        ) : p.service_date > tomorrow(p.today) ? (
-                          <Text style={s.note}>
-                            Confirme no dia anterior a esta data.
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.agendaMeta}>
+                            {p.direction === "OUTBOUND"
+                              ? "IDA · CASA → ESCOLA"
+                              : "VOLTA · ESCOLA → CASA"}
                           </Text>
-                        ) : (
-                          <>
-                            <Field
-                              label="Motivo (obrigatório após o limite)"
-                              value={notes[p.id] || ""}
-                              onChangeText={(v) =>
-                                setNotes({ ...notes, [p.id]: v })
-                              }
-                            />
-                            <Action
-                              busy={busy}
-                              title={p.late ? "Solicitar uso" : "Confirmar uso"}
-                              onPress={() => respond(p, true)}
-                            />
-                            <Action
-                              secondary
-                              busy={busy}
-                              title={
-                                p.late ? "Solicitar não uso" : "Não utilizará"
-                              }
-                              onPress={() => respond(p, false)}
-                            />
-                          </>
-                        )
-                      ) : driver && p.request_id ? (
-                        <>
-                          <Field
-                            label="Registro da decisão (obrigatório para recusar)"
-                            value={notes[p.id] || ""}
-                            onChangeText={(v) =>
-                              setNotes({ ...notes, [p.id]: v })
-                            }
-                          />
-                          <Action
-                            busy={busy}
-                            title="Aceitar alteração"
-                            onPress={() => decide(p, "ACCEPT")}
-                          />
-                          <Action
-                            secondary
-                            busy={busy}
-                            title="Recusar alteração"
-                            onPress={() => decide(p, "REFUSE")}
-                          />
-                        </>
-                      ) : null}
+                          <Text style={s.agendaEventTitle}>
+                            {p.student_name}
+                          </Text>
+                          <Text style={s.agendaEventStatus}>
+                            {p.request_id
+                              ? planningLabel(p) +
+                                " · Alteração aguardando aceite"
+                              : planningLabel(p)}
+                          </Text>
+                        </View>
+                        <View style={s.agendaEventOpen}>
+                          <Text style={s.agendaOpenText}>
+                            {expanded === p.id ? "⌄" : "↗"}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      {expanded === p.id && (
+                        <View style={s.agendaDetail}>
+                          <Text style={s.direction}>
+                            {p.direction === "OUTBOUND"
+                              ? "IDA · CASA → ESCOLA"
+                              : "VOLTA · ESCOLA → CASA"}
+                          </Text>
+                          <Text style={s.title}>{p.student_name}</Text>
+                          <Text style={s.badge}>{planningLabel(p)}</Text>
+                          <Text style={s.note}>
+                            {p.school_name}
+                            {"\n"}
+                            {p.transport_name}
+                            {"\n"}Cadastro {p.student_id.slice(-8)}
+                          </Text>
+                          <Text style={s.deadline}>
+                            Limite:{" "}
+                            {new Date(p.deadline_at).toLocaleString("pt-BR", {
+                              timeZone: p.timezone,
+                            })}
+                            {"\n"}
+                            {p.timezone.replaceAll("_", " ")}
+                          </Text>
+                          <Text style={s.note}>
+                            {p.routine_revision === null
+                              ? "Este planejamento foi criado sem rotina definida."
+                              : p.scheduled
+                                ? "Trecho previsto na rotina."
+                                : "Sem previsão na rotina."}
+                          </Text>
+                          {p.request_id && (
+                            <View style={s.request}>
+                              <Text style={s.strong}>
+                                Alteração aguardando aceite
+                              </Text>
+                              <Text style={s.note}>
+                                Pedido:{" "}
+                                {p.requested_usage
+                                  ? "utilizará"
+                                  : "não utilizará"}{" "}
+                                este trecho.
+                              </Text>
+                              <Text style={s.note}>{p.request_reason}</Text>
+                              <Text style={s.note}>
+                                Situação vigente: {planningLabel(p)}
+                              </Text>
+                            </View>
+                          )}
+                          {!p.request_id &&
+                            p.last_change &&
+                            decisions[p.last_change.status] && (
+                              <View style={s.history}>
+                                <Text style={s.strong}>
+                                  {decisions[p.last_change.status]}
+                                </Text>
+                                {p.last_change.decisionNote && (
+                                  <Text style={s.note}>
+                                    {p.last_change.decisionNote}
+                                  </Text>
+                                )}
+                              </View>
+                            )}
+                          {p.locked_at ? (
+                            <Text style={s.note}>
+                              Planejamento bloqueado pela operação.
+                            </Text>
+                          ) : p.service_date < p.today ? (
+                            <Text style={s.note}>
+                              Data passada · somente consulta.
+                            </Text>
+                          ) : guardian ? (
+                            p.request_id ? (
+                              p.can_withdraw && (
+                                <Action
+                                  secondary
+                                  busy={busy}
+                                  title="Retirar pedido de alteração"
+                                  onPress={() => decide(p, "WITHDRAW")}
+                                />
+                              )
+                            ) : p.service_date > tomorrow(p.today) ? (
+                              <Text style={s.note}>
+                                Confirme no dia anterior a esta data.
+                              </Text>
+                            ) : (
+                              <>
+                                <Field
+                                  label="Motivo (obrigatório após o limite)"
+                                  value={notes[p.id] || ""}
+                                  onChangeText={(v) =>
+                                    setNotes({ ...notes, [p.id]: v })
+                                  }
+                                />
+                                <Action
+                                  busy={busy}
+                                  title={
+                                    p.late ? "Solicitar uso" : "Confirmar uso"
+                                  }
+                                  onPress={() => respond(p, true)}
+                                />
+                                <Action
+                                  secondary
+                                  busy={busy}
+                                  title={
+                                    p.late
+                                      ? "Solicitar não uso"
+                                      : "Não utilizará"
+                                  }
+                                  onPress={() => respond(p, false)}
+                                />
+                              </>
+                            )
+                          ) : driver && p.request_id ? (
+                            <>
+                              <Field
+                                label="Registro da decisão (obrigatório para recusar)"
+                                value={notes[p.id] || ""}
+                                onChangeText={(v) =>
+                                  setNotes({ ...notes, [p.id]: v })
+                                }
+                              />
+                              <Action
+                                busy={busy}
+                                title="Aceitar alteração"
+                                onPress={() => decide(p, "ACCEPT")}
+                              />
+                              <Action
+                                secondary
+                                busy={busy}
+                                title="Recusar alteração"
+                                onPress={() => decide(p, "REFUSE")}
+                              />
+                            </>
+                          ) : null}
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-              ))}
+                  ))}
             </>
           )}
           <Text style={s.note}>

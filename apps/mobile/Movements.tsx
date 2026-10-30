@@ -17,6 +17,7 @@ export default function Movements({
   role,
   busy,
   onConfirm,
+  hideConfirm = false,
   focusKind,
   client,
 }: {
@@ -25,6 +26,7 @@ export default function Movements({
   role: string;
   busy: boolean;
   onConfirm: (kind: MovementKind) => void;
+  hideConfirm?: boolean;
   focusKind?: MovementKind;
   client?: PushClient;
 }) {
@@ -179,7 +181,7 @@ export default function Movements({
                   {m.missingRoles.map((r) => movementRoleLabels[r]).join(" e ")}
                 </Text>
               )}
-              {m.canConfirm ? (
+              {!hideConfirm && m.canConfirm ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${movementAction(role, m.kind)}: ${p.student_name}, ${trip.service_date}, ${trip.direction === "OUTBOUND" ? "ida" : "volta"}`}

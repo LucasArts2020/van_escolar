@@ -23,6 +23,7 @@ export default function MovementsPanel({
   role,
   busy,
   onConfirm,
+  hideConfirm = false,
   focusKind,
   contextId,
 }: {
@@ -31,6 +32,7 @@ export default function MovementsPanel({
   role: string;
   busy: boolean;
   onConfirm: (kind: MovementKind) => void;
+  hideConfirm?: boolean;
   focusKind?: MovementKind;
   contextId?: string;
 }) {
@@ -222,7 +224,7 @@ export default function MovementsPanel({
                   {m.missingRoles.map((r) => movementRoleLabels[r]).join(" e ")}
                 </p>
               )}
-              {m.canConfirm ? (
+              {!hideConfirm && m.canConfirm ? (
                 <button
                   className="button"
                   disabled={busy}

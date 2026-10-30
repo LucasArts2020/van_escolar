@@ -1,4 +1,12 @@
 import {
+  resolutionReceipt,
+  acknowledgeResolution,
+  receiptJoin,
+  pendingReceipt,
+  receiptEligible,
+  pendingResolutionCount,
+} from "./resolution-receipts";
+import {
   ConflictException,
   ForbiddenException,
   Inject,
@@ -157,7 +165,44 @@ export class AlertsService {
         [a.passenger_id],
       )
     ).rows;
+    const automatic = [
+      "CONFIRMATION_PENDING",
+      "ROUTE_END_PENDING",
+      "CORRECTION_CONFLICT",
+    ].includes(a.kind);
+    const requirements = [
+      {
+        id: "authority",
+        label:
+          a.counterpart_role === "SCHOOL"
+            ? "Coordenação da escola"
+            : "Motorista designado",
+        met: authority,
+      },
+      {
+        id: "boarding",
+        label: "Embarque com duas confirmações vigentes",
+        met: validStages.some((v) => v.kind === "BOARDING"),
+      },
+      {
+        id: "alighting",
+        label: "Entrega com duas confirmações vigentes",
+        met: validStages.some((v) => v.kind === "ALIGHTING"),
+      },
+      {
+        id: "contact",
+        label: "Contato realizado registrado",
+        met: events.some((e) => e.type === "CONTACT"),
+      },
+      {
+        id: "verification",
+        label: "Verificação física registrada",
+        met: events.some((e) => e.type === "VERIFICATION"),
+      },
+    ];
     return {
+      requirements,
+      resolutionMode: automatic ? "FACTS" : "VERIFIED_FOLLOW_UP",
       canAssume:
         a.status !== "RESOLVED" && !a.assigned_to && this.canHandle(req, a),
       canRecord:
@@ -206,20 +251,42 @@ export class AlertsService {
       assignedName: assigned,
       missingRoles,
       actions: await this.flags(req, a),
+      resolution:
+        a.status === "RESOLVED"
+          ? ((
+              await this.db.pool.query(
+                "SELECT id event_id,actor_name,occurred_at FROM alert_events WHERE case_id=$1 AND type='RESOLVED' ORDER BY position DESC LIMIT 1",
+                [a.id],
+              )
+            ).rows[0] ?? null)
+          : null,
+      receipt:
+        a.status === "RESOLVED"
+          ? await resolutionReceipt(this.db.pool, a, req, this.clock.now())
+          : null,
     };
   }
-  async list(req: ActorRequest, closed = false) {
+  async list(req: ActorRequest, closed = false, awaiting = false) {
     const rows = (
       await this.db.pool.query(
-        `SELECT a.id ${alertJoin} WHERE ${alertScope} AND (a.status='RESOLVED')=$4
+        `SELECT a.id ${alertJoin} WHERE ${alertScope} AND (CASE WHEN $5 THEN EXISTS(SELECT 1 FROM alert_resolution_recipients rr JOIN alert_resolution_receipts ar ON ar.event_id=rr.event_id WHERE ar.case_id=a.id AND rr.user_id=$3 AND ${pendingReceipt} AND ${receiptEligible.replace("rm.active", "rm.active AND rm.id=$6")}) AND a.status='RESOLVED' ELSE (a.status='RESOLVED')=$4 END)
     ORDER BY a.level DESC,a.origin_at,a.id LIMIT 100`,
-        [...this.params(req), closed],
+        [...this.params(req), closed, awaiting, req.context!.id],
       )
     ).rows;
     const items = [];
     for (const { id } of rows)
       items.push(await this.present(req, await this.allowed(req, id)));
-    return { items, serverNow: this.clock.now().toISOString() };
+    const pendingCount = await pendingResolutionCount(
+      this.db.pool,
+      req.actor.id,
+      req.context!.id,
+    );
+    return {
+      items: awaiting ? items.filter((i) => i.receipt?.canAcknowledge) : items,
+      pendingCount,
+      serverNow: this.clock.now().toISOString(),
+    };
   }
   async detail(req: ActorRequest, id: string) {
     const a = await this.allowed(req, id);
@@ -273,6 +340,15 @@ export class AlertsService {
       role: req.context!.role,
       membershipId: req.context!.id,
     };
+  }
+  async acknowledge(req: ActorRequest, id: string, eventId: string) {
+    return this.write(req, id, async (db, a) => {
+      if (!(await acknowledgeResolution(db, a, req, eventId, this.clock.now())))
+        throw new ForbiddenException(
+          "Esta ciência não está disponível para seu acesso ou para esta resolução.",
+        );
+      return { receipt: await resolutionReceipt(db, a, req, this.clock.now()) };
+    });
   }
   async action(
     req: ActorRequest,

@@ -1,3 +1,4 @@
+import { pendingResolutionCount } from "./resolution-receipts";
 import {
   ForbiddenException,
   Inject,
@@ -201,7 +202,7 @@ export class NotificationsService {
     });
     return { ok: true };
   }
-  async home(req: ActorRequest) {
+  async home(req: ActorRequest, page = 0) {
     if (req.context!.role !== "GUARDIAN")
       throw new ForbiddenException("Este início é do responsável.");
     const students = (
@@ -220,8 +221,8 @@ export class NotificationsService {
         JOIN trip_passengers p ON p.trip_id=t.id JOIN operating_links l ON l.id=p.operating_link_id
         WHERE p.student_id=$1 AND p.active AND l.status='ACTIVE' AND t.status<>'CANCELLED'
           AND t.service_date<=($2::timestamptz AT TIME ZONE t.timezone)::date
-        ORDER BY CASE WHEN t.status IN ('IN_PROGRESS','ROUTE_ENDED_OPEN') AND p.delivery_validated_at IS NULL THEN 0 ELSE 1 END,
-        t.service_date DESC,t.started_at DESC NULLS LAST,t.created_at DESC LIMIT 1`,
+        ORDER BY t.service_date DESC,CASE WHEN t.status IN ('IN_PROGRESS','ROUTE_ENDED_OPEN','COMPLETED_REVIEW') THEN 0 ELSE 1 END,
+        t.started_at DESC NULLS LAST,t.created_at DESC,t.id LIMIT 1`,
           [student.id, this.clock.now()],
         )
       ).rows;
@@ -252,7 +253,43 @@ export class NotificationsService {
       }
       children.push({ ...student, current });
     }
-    return { children };
+    // Current journey and unresolved journeys are independent. Historical validation dates
+    // cannot prove a confirmation is still valid after an approved correction.
+    const pendingJourneys = (
+      await this.db.pool.query(
+        `WITH scoped AS (
+      SELECT t.id "tripId",p.id "passengerId",p.student_id "studentId",p.student_name "studentName",
+        t.service_date::text date,t.direction,t.status,
+        COALESCE((SELECT max(a.level) FROM alert_cases a JOIN movements m ON m.id=a.movement_id WHERE m.passenger_id=p.id AND a.status<>'RESOLVED'),0) level
+      FROM trips t JOIN trip_passengers p ON p.trip_id=t.id JOIN operating_links l ON l.id=p.operating_link_id
+      WHERE p.active AND l.status='ACTIVE'
+        AND EXISTS(SELECT 1 FROM guardian_links g WHERE g.student_id=p.student_id AND g.user_id=$1 AND g.status='ACTIVE')
+        AND t.service_date<=($2::timestamptz AT TIME ZONE t.timezone)::date
+        AND (t.status='COMPLETED_REVIEW'
+          OR EXISTS(SELECT 1 FROM alert_cases a JOIN movements m ON m.id=a.movement_id WHERE m.passenger_id=p.id AND a.status<>'RESOLVED')
+          OR (t.status IN ('IN_PROGRESS','ROUTE_ENDED_OPEN') AND
+            (SELECT count(*) FROM movement_confirmations c JOIN movements m ON m.id=c.movement_id
+             WHERE m.passenger_id=p.id AND m.kind='ALIGHTING' AND NOT EXISTS(SELECT 1 FROM confirmation_corrections r WHERE r.confirmation_id=c.id AND r.status='APPROVED'))<2
+            AND p.disposition<>'NOT_TRANSPORTED'
+            AND NOT EXISTS(SELECT 1 FROM exceptional_resolutions e WHERE e.passenger_id=p.id AND e.safety_revision=p.safety_revision))))
+      SELECT (SELECT count(*)::int FROM scoped) total,
+        COALESCE((SELECT jsonb_agg(to_jsonb(items)) FROM (SELECT * FROM scoped ORDER BY level DESC,date,"tripId","passengerId" LIMIT 20 OFFSET $3) items),'[]'::jsonb) items`,
+        [req.actor.id, this.clock.now(), page * 20],
+      )
+    ).rows[0];
+    return {
+      children,
+      pendingAcknowledgements: await pendingResolutionCount(
+        this.db.pool,
+        req.actor.id,
+        req.context!.id,
+      ),
+      pendingJourneys: {
+        ...pendingJourneys,
+        page,
+        hasMore: (page + 1) * 20 < pendingJourneys.total,
+      },
+    };
   }
   async registerDevice(
     req: ActorRequest,

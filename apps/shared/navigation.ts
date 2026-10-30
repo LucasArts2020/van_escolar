@@ -8,4 +8,5 @@ export type JourneyTarget = {
   tripId?: string;
   passengerId?: string;
   alertId?: string;
+  awaitingAcknowledgement?: boolean;
 };

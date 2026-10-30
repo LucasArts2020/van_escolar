@@ -1,3 +1,4 @@
+import { createResolutionReceipts } from "./resolution-receipts";
 import { randomUUID, createHash } from "node:crypto";
 import { PoolClient } from "pg";
 import { audit } from "./db";
@@ -174,7 +175,10 @@ export async function notifyAlert(
         : "Responsável"
       : null,
   ].filter(Boolean);
-  const recipients = await alertRecipients(db, a);
+  const resolutionRecipients = resolved
+    ? await createResolutionReceipts(db, a, eventId, now)
+    : null;
+  const recipients = resolutionRecipients ?? (await alertRecipients(db, a));
   const { criticalSchool, criticalRecipients, routing } = alertRouting(
     a,
     recipients,
@@ -189,6 +193,7 @@ export async function notifyAlert(
     caseKind: a.kind,
     missingRoles: missing,
     routingStatus: routing,
+    requiresAcknowledgement: resolved && !!resolutionRecipients,
   };
   await db.query(
     `INSERT INTO notification_events(id,movement_id,passenger_id,kind,state,actor_name,actor_role,occurred_at,alert_event_id,alert_id,details)
@@ -250,7 +255,9 @@ export async function notifyAlert(
         m.user_id,
         pending ? "ACTION" : "UPDATE",
         now,
-        criticalSchool && followup && !pending,
+        resolved && resolutionRecipients
+          ? m.role === "SCHOOL"
+          : criticalSchool && followup && !pending,
       ],
     );
   }
@@ -295,6 +302,13 @@ export async function syncPassengerAlerts(
   db: Tx,
   passengerId: string,
   now: Date,
+  triggeringConfirmation?: {
+    id: string;
+    actor_id: string;
+    actor_name: string;
+    role: string;
+    membership_id: string;
+  },
 ) {
   if (await currentException(db, passengerId)) return;
   const rows = (
@@ -380,7 +394,13 @@ export async function syncPassengerAlerts(
         a = await caseRow(db, id);
       }
       if (a.kind === "CONFIRMATION_PENDING" && records.length === 2) {
-        await resolveByConfirmations(db, a, now, records[1]);
+        await resolveByConfirmations(
+          db,
+          a,
+          now,
+          records.find((c) => c.id === triggeringConfirmation?.id) ??
+            records[1],
+        );
         continue;
       }
       if (a.kind === "ROUTE_END_PENDING") {
@@ -392,7 +412,13 @@ export async function syncPassengerAlerts(
           )
         ).rows;
         if (all.length === 4) {
-          await resolveByConfirmations(db, a, now, all[3], "NORMAL_ACCOUNTING");
+          await resolveByConfirmations(
+            db,
+            a,
+            now,
+            all.find((c) => c.id === triggeringConfirmation?.id) ?? all[3],
+            "NORMAL_ACCOUNTING",
+          );
           continue;
         }
         if (a.disposition === "NOT_TRANSPORTED" && !all.length) {

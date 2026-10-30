@@ -2,9 +2,15 @@
 
 Implementação incremental em TypeScript. **Partes 1 a 10 implementadas para teste local.** A Parte 10 integra os fluxos, a preparação por perfil, testes reproduzíveis e diagnóstico protegido. Consulte `docs/teste-parte-10.md`. **Uso real não liberado:** faltam homologação do usuário, decisões operacionais e validação dos canais/aparelhos reais.
 
+Rodada de urgências: [resolução e confirmação de ciência](docs/urgencias-resolucao-ciencia.md), com requisitos visíveis, comprovante e ciência separada para novas resoluções críticas.
+
+Agenda familiar: [confirmação simplificada](docs/agenda-confirmacao-simples.md), com escolha de ida/volta e um botão principal por criança, transporte e data.
+
+Meu dia: [resumo para preparar a viagem](docs/meu-dia-preparacao-resumo.md), com pendências, quem vai, quem não vai e situações a conferir antes da preparação.
+
 ## Stack
 
-Entrega atual para teste: **simplificação da escola**, com planejamento integrado à Central, previsões sem viagem, navegação contextual e três entradas principais. A organização escolar está disponível na web e no Expo. Veja [o roteiro desta rodada](docs/simplificacao-escola.md). Os novos layouts de motorista, responsável e gestão ficam para as próximas rodadas, após teste do usuário.
+Entrega atual para teste: **Meu dia do motorista e coerência das informações**, na web e no Expo, com confirmação individual em abas de Embarque/Desembarque, preparação contextual e conferência física separada. Veja [o roteiro desta rodada](docs/simplificacao-motorista.md). A [Central escolar integrada](docs/simplificacao-escola.md) continua disponível. Os novos layouts de responsável e gestão ficam para as próximas rodadas, após teste do usuário. A [atualização visual](docs/atualizacao-visual.md) unifica os estilos e simplifica a apresentação das telas existentes.
 
 - `apps/api`: NestJS, PostgreSQL, sessões opacas revogáveis, auditoria transacional e caixa de saída com BullMQ.
 - `apps/web`: Next.js App Router e React, painel em português.

@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import GuardianDayCard from "./guardian-day-card";
+import { groupAgenda } from "../../shared/day-choice";
+import { planningLabel } from "../../shared/planning-presentation";
 import AgendaCalendar from "./agenda-calendar";
 import { createPlanningMaterializer } from "../../shared/materialize-planning";
 import {
@@ -78,6 +81,7 @@ type Board = {
     confirmed: number;
     notUsing: number;
     notExpected: number;
+    missingConfiguration: number;
     awaitingChanges: number;
   };
 };
@@ -155,13 +159,16 @@ export default function PlanningPanel({ context }: { context: Context }) {
     setTimezone(data.policy?.timezone || "America/Sao_Paulo");
     return data;
   }
+  const dateRef = useRef(date);
+  dateRef.current = date;
   async function loadBoard() {
     if (date) {
       if (options && (guardian || driver))
         await materializePlanning(date, options, (body) =>
           api("generate", body),
         );
-      setBoard(await api<Board>("day?date=" + date));
+      const result = await api<Board>("day?date=" + date);
+      if (dateRef.current === date) setBoard(result);
     }
   }
   async function loadRoutine() {
@@ -431,6 +438,10 @@ export default function PlanningPanel({ context }: { context: Context }) {
                       [board.counts.pending, "Aguardando resposta"],
                       [board.counts.confirmed, "Uso confirmado"],
                       [board.counts.notUsing, "Não utilizará"],
+                      [
+                        board.counts.missingConfiguration,
+                        "Previsão sem configuração",
+                      ],
                       [board.counts.awaitingChanges, "Alterações em análise"],
                     ].map(([n, label]) => (
                       <div key={label}>
@@ -453,162 +464,222 @@ export default function PlanningPanel({ context }: { context: Context }) {
                   </section>
                 ) : (
                   <div className="planning-cards">
-                    {board.plans.map((p) => (
-                      <article
-                        key={p.id}
-                        className={`planning-card agenda-event ${expanded === p.id ? "expanded" : ""}`}
-                        data-plan-id={p.id}
-                      >
-                        <button
-                          className="agenda-event-toggle"
-                          aria-expanded={expanded === p.id}
-                          aria-controls={"plan-details-" + p.id}
-                          onClick={() =>
-                            setExpanded(expanded === p.id ? null : p.id)
-                          }
-                        >
-                          <span className="agenda-event-icon">
-                            {p.direction === "OUTBOUND" ? (
-                              <ArrowUp size={20} />
-                            ) : (
-                              <ArrowDown size={20} />
-                            )}
-                          </span>
-                          <span className="agenda-event-copy">
-                            <span className="agenda-event-meta">
-                              {p.direction === "OUTBOUND"
-                                ? "IDA · CASA → ESCOLA"
-                                : "VOLTA · ESCOLA → CASA"}
-                            </span>
-                            <strong>{p.student_name}</strong>
-                            <span className="agenda-event-subtitle">
-                              {p.request_id
-                                ? "Alteração aguardando aceite"
-                                : labels[p.status]}
-                            </span>
-                          </span>
-                          <span className="agenda-event-open">
-                            {expanded === p.id ? (
-                              <ChevronDown size={18} />
-                            ) : (
-                              <ArrowUpRight size={18} />
-                            )}
-                          </span>
-                        </button>
-                        <div
-                          id={"plan-details-" + p.id}
-                          className="agenda-event-details"
-                          hidden={expanded !== p.id}
-                        >
-                          <div className="panel-heading">
-                            <div>
-                              <span className="planning-direction">
-                                {p.direction === "OUTBOUND"
-                                  ? "IDA · CASA → ESCOLA"
-                                  : "VOLTA · ESCOLA → CASA"}
-                              </span>
-                              <h3>{p.student_name}</h3>
-                              <p>
-                                {p.school_name}
-                                <br />
-                                {p.transport_name}
-                                <br />
-                                Cadastro {p.student_id.slice(-8)}
-                              </p>
-                            </div>
-                            <span
-                              className={
-                                "registry-badge " +
-                                (p.status === "CONFIRMED"
-                                  ? "active"
-                                  : p.status === "NOT_USING"
-                                    ? "inactive"
-                                    : "pending")
+                    {guardian
+                      ? groupAgenda(board.plans).map((g) => (
+                          <GuardianDayCard
+                            key={context.id + g.key}
+                            plans={g.plans}
+                            submit={(body) => api("day/respond", body)}
+                            refresh={loadBoard}
+                            withdraw={(p) => decide(p as Plan, "WITHDRAW")}
+                          />
+                        ))
+                      : board.plans.map((p) => (
+                          <article
+                            key={p.id}
+                            className={`planning-card agenda-event ${expanded === p.id ? "expanded" : ""}`}
+                            data-plan-id={p.id}
+                          >
+                            <button
+                              className="agenda-event-toggle"
+                              aria-expanded={expanded === p.id}
+                              aria-controls={"plan-details-" + p.id}
+                              onClick={() =>
+                                setExpanded(expanded === p.id ? null : p.id)
                               }
                             >
-                              {labels[p.status]}
-                            </span>
-                          </div>
-                          <div className="planning-deadline">
-                            <Clock3 size={14} />
-                            <span>
-                              Limite:{" "}
-                              {new Date(p.deadline_at).toLocaleString("pt-BR", {
-                                timeZone: p.timezone,
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })}
-                              <small>{p.timezone.replaceAll("_", " ")}</small>
-                            </span>
-                          </div>
-                          <p className="registry-note">
-                            {p.routine_revision === null
-                              ? "Rotina ainda não configurada."
-                              : p.scheduled
-                                ? "Trecho previsto na rotina semanal."
-                                : "Trecho não previsto na rotina semanal."}
-                            {p.exception
-                              ? " Exceção registrada para esta data."
-                              : ""}
-                          </p>
-                          {p.request_id && (
-                            <div className="planning-request">
-                              <strong>Alteração aguardando aceite</strong>
-                              <p>
-                                Pedido:{" "}
-                                {p.requested_usage
-                                  ? "utilizará"
-                                  : "não utilizará"}{" "}
-                                este trecho.
-                              </p>
-                              <p>{p.request_reason}</p>
-                              <small>
-                                Situação vigente: {labels[p.status]}
-                              </small>
-                            </div>
-                          )}
-                          {!p.request_id &&
-                            p.last_change &&
-                            decision[p.last_change.status] && (
-                              <div className="planning-history">
-                                <strong>
-                                  {decision[p.last_change.status]}
-                                </strong>
-                                {p.last_change.decisionNote && (
-                                  <p>{p.last_change.decisionNote}</p>
+                              <span className="agenda-event-icon">
+                                {p.direction === "OUTBOUND" ? (
+                                  <ArrowUp size={20} />
+                                ) : (
+                                  <ArrowDown size={20} />
                                 )}
+                              </span>
+                              <span className="agenda-event-copy">
+                                <span className="agenda-event-meta">
+                                  {p.direction === "OUTBOUND"
+                                    ? "IDA · CASA → ESCOLA"
+                                    : "VOLTA · ESCOLA → CASA"}
+                                </span>
+                                <strong>{p.student_name}</strong>
+                                <span className="agenda-event-subtitle">
+                                  {p.request_id
+                                    ? planningLabel(p) +
+                                      " · Alteração aguardando aceite"
+                                    : planningLabel(p)}
+                                </span>
+                              </span>
+                              <span className="agenda-event-open">
+                                {expanded === p.id ? (
+                                  <ChevronDown size={18} />
+                                ) : (
+                                  <ArrowUpRight size={18} />
+                                )}
+                              </span>
+                            </button>
+                            <div
+                              id={"plan-details-" + p.id}
+                              className="agenda-event-details"
+                              hidden={expanded !== p.id}
+                            >
+                              <div className="panel-heading">
+                                <div>
+                                  <span className="planning-direction">
+                                    {p.direction === "OUTBOUND"
+                                      ? "IDA · CASA → ESCOLA"
+                                      : "VOLTA · ESCOLA → CASA"}
+                                  </span>
+                                  <h3>{p.student_name}</h3>
+                                  <p>
+                                    {p.school_name}
+                                    <br />
+                                    {p.transport_name}
+                                    <br />
+                                    Cadastro {p.student_id.slice(-8)}
+                                  </p>
+                                </div>
+                                <span
+                                  className={
+                                    "registry-badge " +
+                                    (p.status === "CONFIRMED"
+                                      ? "active"
+                                      : p.status === "NOT_USING"
+                                        ? "inactive"
+                                        : "pending")
+                                  }
+                                >
+                                  {planningLabel(p)}
+                                </span>
                               </div>
-                            )}
-                          {p.locked_at ? (
-                            <p className="registry-note">
-                              <ShieldCheck size={14} /> Planejamento bloqueado
-                              pela operação.
-                            </p>
-                          ) : p.service_date < p.today ? (
-                            <p className="registry-note">
-                              Data passada · somente consulta.
-                            </p>
-                          ) : guardian ? (
-                            <>
-                              {p.request_id ? (
-                                p.can_withdraw && (
-                                  <button
-                                    className="text-button planning-withdraw"
-                                    disabled={busy}
-                                    onClick={() => decide(p, "WITHDRAW")}
-                                  >
-                                    Retirar pedido de alteração
-                                  </button>
-                                )
-                              ) : p.service_date > tomorrow(p.today) ? (
+                              <div className="planning-deadline">
+                                <Clock3 size={14} />
+                                <span>
+                                  Limite:{" "}
+                                  {new Date(p.deadline_at).toLocaleString(
+                                    "pt-BR",
+                                    {
+                                      timeZone: p.timezone,
+                                      dateStyle: "short",
+                                      timeStyle: "short",
+                                    },
+                                  )}
+                                  <small>
+                                    {p.timezone.replaceAll("_", " ")}
+                                  </small>
+                                </span>
+                              </div>
+                              <p className="registry-note">
+                                {p.routine_revision === null
+                                  ? "Este planejamento foi criado sem rotina definida."
+                                  : p.scheduled
+                                    ? "Trecho previsto na rotina semanal."
+                                    : "Trecho não previsto na rotina semanal."}
+                                {p.exception
+                                  ? " Exceção registrada para esta data."
+                                  : ""}
+                              </p>
+                              {p.request_id && (
+                                <div className="planning-request">
+                                  <strong>Alteração aguardando aceite</strong>
+                                  <p>
+                                    Pedido:{" "}
+                                    {p.requested_usage
+                                      ? "utilizará"
+                                      : "não utilizará"}{" "}
+                                    este trecho.
+                                  </p>
+                                  <p>{p.request_reason}</p>
+                                  <small>
+                                    Situação vigente: {planningLabel(p)}
+                                  </small>
+                                </div>
+                              )}
+                              {!p.request_id &&
+                                p.last_change &&
+                                decision[p.last_change.status] && (
+                                  <div className="planning-history">
+                                    <strong>
+                                      {decision[p.last_change.status]}
+                                    </strong>
+                                    {p.last_change.decisionNote && (
+                                      <p>{p.last_change.decisionNote}</p>
+                                    )}
+                                  </div>
+                                )}
+                              {p.locked_at ? (
                                 <p className="registry-note">
-                                  Confirme no dia anterior a esta data.
+                                  <ShieldCheck size={14} /> Planejamento
+                                  bloqueado pela operação.
                                 </p>
-                              ) : (
+                              ) : p.service_date < p.today ? (
+                                <p className="registry-note">
+                                  Data passada · somente consulta.
+                                </p>
+                              ) : guardian ? (
+                                <>
+                                  {p.request_id ? (
+                                    p.can_withdraw && (
+                                      <button
+                                        className="text-button planning-withdraw"
+                                        disabled={busy}
+                                        onClick={() => decide(p, "WITHDRAW")}
+                                      >
+                                        Retirar pedido de alteração
+                                      </button>
+                                    )
+                                  ) : p.service_date > tomorrow(p.today) ? (
+                                    <p className="registry-note">
+                                      Confirme no dia anterior a esta data.
+                                    </p>
+                                  ) : (
+                                    <>
+                                      <label className="planning-reason">
+                                        Motivo da alteração (obrigatório após o
+                                        limite)
+                                        <textarea
+                                          value={notes[p.id] || ""}
+                                          maxLength={1000}
+                                          onChange={(e) =>
+                                            setNotes({
+                                              ...notes,
+                                              [p.id]: e.target.value,
+                                            })
+                                          }
+                                          placeholder={
+                                            p.late
+                                              ? "Descreva a necessidade da alteração"
+                                              : "Opcional antes do limite"
+                                          }
+                                        />
+                                      </label>
+                                      <div className="planning-actions">
+                                        <button
+                                          className="button"
+                                          disabled={busy}
+                                          onClick={() => respond(p, true)}
+                                        >
+                                          {p.late
+                                            ? "Solicitar uso"
+                                            : "Confirmar uso"}
+                                        </button>
+                                        <button
+                                          className="planning-secondary"
+                                          disabled={busy}
+                                          onClick={() => respond(p, false)}
+                                        >
+                                          {p.late
+                                            ? "Solicitar não uso"
+                                            : "Não utilizará"}
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </>
+                              ) : driver && p.request_id ? (
                                 <>
                                   <label className="planning-reason">
-                                    Motivo da alteração (obrigatório após o
-                                    limite)
+                                    Registro da decisão (obrigatório para
+                                    recusar)
                                     <textarea
                                       value={notes[p.id] || ""}
                                       maxLength={1000}
@@ -618,72 +689,29 @@ export default function PlanningPanel({ context }: { context: Context }) {
                                           [p.id]: e.target.value,
                                         })
                                       }
-                                      placeholder={
-                                        p.late
-                                          ? "Descreva a necessidade da alteração"
-                                          : "Opcional antes do limite"
-                                      }
                                     />
                                   </label>
                                   <div className="planning-actions">
                                     <button
                                       className="button"
                                       disabled={busy}
-                                      onClick={() => respond(p, true)}
+                                      onClick={() => decide(p, "ACCEPT")}
                                     >
-                                      {p.late
-                                        ? "Solicitar uso"
-                                        : "Confirmar uso"}
+                                      Aceitar alteração
                                     </button>
                                     <button
                                       className="planning-secondary"
                                       disabled={busy}
-                                      onClick={() => respond(p, false)}
+                                      onClick={() => decide(p, "REFUSE")}
                                     >
-                                      {p.late
-                                        ? "Solicitar não uso"
-                                        : "Não utilizará"}
+                                      Recusar alteração
                                     </button>
                                   </div>
                                 </>
-                              )}
-                            </>
-                          ) : driver && p.request_id ? (
-                            <>
-                              <label className="planning-reason">
-                                Registro da decisão (obrigatório para recusar)
-                                <textarea
-                                  value={notes[p.id] || ""}
-                                  maxLength={1000}
-                                  onChange={(e) =>
-                                    setNotes({
-                                      ...notes,
-                                      [p.id]: e.target.value,
-                                    })
-                                  }
-                                />
-                              </label>
-                              <div className="planning-actions">
-                                <button
-                                  className="button"
-                                  disabled={busy}
-                                  onClick={() => decide(p, "ACCEPT")}
-                                >
-                                  Aceitar alteração
-                                </button>
-                                <button
-                                  className="planning-secondary"
-                                  disabled={busy}
-                                  onClick={() => decide(p, "REFUSE")}
-                                >
-                                  Recusar alteração
-                                </button>
-                              </div>
-                            </>
-                          ) : null}
-                        </div>
-                      </article>
-                    ))}
+                              ) : null}
+                            </div>
+                          </article>
+                        ))}
                   </div>
                 )}
               </>

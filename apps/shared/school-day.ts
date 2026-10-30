@@ -28,6 +28,7 @@ export type SchoolDayRow = {
     planId: string | null;
     version: number | null;
     deadlineAt: string | null;
+    snapshotMissingRoutine?: boolean;
     missingConfiguration: ("POLICY" | "ROUTINE")[];
     pendingChange: {
       id: string;
@@ -59,6 +60,7 @@ export type SchoolDayAttention = {
 };
 
 export type SchoolDay = {
+  pendingAcknowledgements?: number;
   date: string;
   serverNow: string;
   today: string;
@@ -79,3 +81,11 @@ export const schoolPlanningLabels: Record<SchoolPlanningStatus, string> = {
   MISSING_CONFIGURATION: "Configuração pendente",
   NO_HISTORICAL_PLAN: "Sem planejamento registrado nesta data",
 };
+
+export function schoolPlanningLabel(p: SchoolDayRow["planning"]) {
+  return p.status === "MISSING_CONFIGURATION" &&
+    p.source === "PERSISTED" &&
+    !p.missingConfiguration.length
+    ? "Previsão criada sem rotina definida"
+    : schoolPlanningLabels[p.status];
+}

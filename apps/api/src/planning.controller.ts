@@ -1,3 +1,4 @@
+import { planningPresentation } from "../../shared/planning-presentation";
 import {
   Body,
   BadRequestException,
@@ -220,9 +221,9 @@ export class PlanningController {
     const rows = (
       await this.db.pool.query(
         `SELECT p.*,p.service_date::text service_date,l.student_id,s.name student_name,sc.name school_name,t.name transport_name,
-      pc.id request_id,pc.requested_usage,pc.reason request_reason,pc.requested_by,pc.requested_by=$3 can_withdraw,
+      r.revision current_routine_revision,pc.id request_id,pc.requested_usage,pc.reason request_reason,pc.requested_by,pc.requested_by=$3 can_withdraw,
       (SELECT json_build_object('status',ch.status,'requestedUsage',ch.requested_usage,'reason',ch.reason,'decisionNote',ch.decision_note,'decidedAt',ch.decided_at) FROM planning_changes ch WHERE ch.plan_id=p.id ORDER BY ch.requested_at DESC,ch.id DESC LIMIT 1) last_change
-      FROM daily_plans p JOIN operating_links l ON l.id=p.operating_link_id JOIN students s ON s.id=l.student_id JOIN organizations sc ON sc.id=l.school_id JOIN organizations t ON t.id=l.transport_id LEFT JOIN planning_changes pc ON pc.plan_id=p.id AND pc.status='PENDING' WHERE ${accessSql} AND p.service_date=$4 ORDER BY s.name,l.id,p.direction`,
+      FROM daily_plans p JOIN operating_links l ON l.id=p.operating_link_id JOIN students s ON s.id=l.student_id JOIN organizations sc ON sc.id=l.school_id JOIN organizations t ON t.id=l.transport_id LEFT JOIN weekly_routines r ON r.operating_link_id=l.id LEFT JOIN planning_changes pc ON pc.plan_id=p.id AND pc.status='PENDING' WHERE ${accessSql} AND p.service_date=$4 ORDER BY s.name,l.id,p.direction`,
         [...this.service.params(req), value],
       )
     ).rows;
@@ -230,6 +231,7 @@ export class PlanningController {
       date: value,
       plans: rows.map((p) => ({
         ...p,
+        presentation: planningPresentation(p),
         late:
           this.service.clock.now().getTime() >=
           new Date(p.deadline_at).getTime(),
@@ -243,10 +245,45 @@ export class PlanningController {
         pending: rows.filter((p) => p.status === "PENDING").length,
         confirmed: rows.filter((p) => p.status === "CONFIRMED").length,
         notUsing: rows.filter((p) => p.status === "NOT_USING").length,
-        notExpected: rows.filter((p) => p.status === "NOT_EXPECTED").length,
+        notExpected: rows.filter(
+          (p) => p.status === "NOT_EXPECTED" && p.routine_revision,
+        ).length,
+        missingConfiguration: rows.filter(
+          (p) => planningPresentation(p).status === "MISSING_CONFIGURATION",
+        ).length,
         awaitingChanges: rows.filter((p) => p.request_id).length,
       },
     };
+  }
+  @Post("day/respond") respondDay(
+    @Req() req: ActorRequest,
+    @Body() body: unknown,
+  ) {
+    const input = parse(
+      z
+        .object({
+          choices: z
+            .array(
+              z
+                .object({
+                  id: uuid,
+                  use: z.boolean(),
+                  expectedVersion: z.number().int().min(1),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(2)
+            .refine(
+              (c) => new Set(c.map((p) => p.id)).size === c.length,
+              "Trechos duplicados.",
+            ),
+          reason: reason.optional(),
+        })
+        .strict(),
+      body,
+    );
+    return this.service.respondDay(req, input.choices, input.reason);
   }
   @Post("plans/:id/respond")
   async respond(

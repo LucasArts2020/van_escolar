@@ -1,4 +1,6 @@
 "use client";
+import { schoolPlanningLabel } from "../../shared/school-day";
+import { sidePresentation } from "../../shared/movement-presentation";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -827,6 +829,21 @@ function SchoolCentralContext({
         </div>
       </section>
 
+      {!!data.pendingAcknowledgements && onOpenTarget && (
+        <button
+          className="planning-secondary"
+          onClick={() =>
+            onOpenTarget({
+              view: "alerts",
+              contextId: context.id,
+              date,
+              awaitingAcknowledgement: true,
+            })
+          }
+        >
+          Ciências de urgências pendentes: {data.pendingAcknowledgements}
+        </button>
+      )}
       {offline && (
         <p className="sc-offline" role="status">
           <WifiOff size={17} /> Sem comunicação verificada. As ações aguardam
@@ -1064,7 +1081,7 @@ function SchoolRow({
             <span
               className={`sc-planning-badge sc-plan-${row.planning.status.toLowerCase()}`}
             >
-              {schoolPlanningLabels[row.planning.status]}
+              {schoolPlanningLabel(row.planning)}
             </span>
           </div>
         </div>
@@ -1092,22 +1109,7 @@ function SchoolRow({
                 ) : (
                   <Clock3 size={14} />
                 )}
-                <span>
-                  {schoolReview ? (
-                    <>
-                      Escola: registro sob correção por{" "}
-                      <strong>{school?.actorName}</strong>
-                    </>
-                  ) : school ? (
-                    <>
-                      Escola confirmou por <strong>{school.actorName}</strong>
-                    </>
-                  ) : invalidSchool ? (
-                    "Escola: registro invalidado por correção"
-                  ) : (
-                    "Escola: falta confirmar"
-                  )}
-                </span>
+                <span>{sidePresentation(movement, "COUNTERPART")}</span>
               </span>
               <span
                 className={`sc-side ${driverReview || invalidDriver ? "sc-corrected" : driver ? "sc-confirmed" : ""}`}
@@ -1119,23 +1121,7 @@ function SchoolRow({
                 ) : (
                   <Clock3 size={14} />
                 )}
-                <span>
-                  {driverReview ? (
-                    <>
-                      Motorista: registro sob correção por{" "}
-                      <strong>{driver?.actorName}</strong>
-                    </>
-                  ) : driver ? (
-                    <>
-                      Motorista confirmou por{" "}
-                      <strong>{driver.actorName}</strong>
-                    </>
-                  ) : invalidDriver ? (
-                    "Motorista: registro invalidado por correção"
-                  ) : (
-                    "Aguardando motorista"
-                  )}
-                </span>
+                <span>{sidePresentation(movement, "DRIVER")}</span>
               </span>
               {school && driver && (
                 <span
@@ -1301,7 +1287,7 @@ function SchoolRow({
                   ? "Planejamento registrado"
                   : "Estimativa da rotina"}
               </strong>
-              <span>{schoolPlanningLabels[row.planning.status]}</span>
+              <span>{schoolPlanningLabel(row.planning)}</span>
               {row.planning.deadlineAt && (
                 <span>
                   Limite para resposta:{" "}

@@ -1,3 +1,4 @@
+import { planningLabel } from "../shared/planning-presentation";
 import { useEffect, useRef, useState } from "react";
 import Movements from "./Movements";
 import TripClosure from "./TripClosure";
@@ -28,9 +29,21 @@ type Client = <T>(
 export default function Trips({
   context,
   client,
+  initialDate,
+  initialTripId = "",
+  initialDirection = "OUTBOUND",
+  initialPreparing = false,
+  managementOnly = false,
+  onPrepared,
 }: {
   context: Context;
   client: Client;
+  initialDate?: string;
+  initialTripId?: string;
+  initialDirection?: string;
+  initialPreparing?: boolean;
+  managementOnly?: boolean;
+  onPrepared?: (tripId: string, serviceDate: string) => void;
 }) {
   const materializePlanning = useRef(createPlanningMaterializer()).current;
   const driver = context.role === "DRIVER";
@@ -39,14 +52,14 @@ export default function Trips({
   } | null>(null);
   const [date, setDate] = useState(""),
     [today, setToday] = useState(""),
-    [direction, setDirection] = useState("OUTBOUND"),
+    [direction, setDirection] = useState(initialDirection),
     [trips, setTrips] = useState<Trip[]>([]),
     [options, setOptions] = useState<TripOptions>({
       plans: [],
       drivers: [],
       vehicles: [],
     });
-  const [selected, setSelected] = useState(""),
+  const [selected, setSelected] = useState(initialTripId),
     [preparing, setPreparing] = useState(false),
     [driverId, setDriverId] = useState(""),
     [vehicleId, setVehicleId] = useState(""),
@@ -66,6 +79,23 @@ export default function Trips({
     body?: unknown,
     method = body ? "POST" : "GET",
   ) => client<T>(path, body, undefined, method);
+  useEffect(() => {
+    let alive = true;
+    if (initialPreparing)
+      api<{ id: string }>("trips/preparation-key", {})
+        .then((key) => {
+          if (alive) {
+            setCreationId(key.id);
+            setPreparing(true);
+          }
+        })
+        .catch((e) => {
+          if (alive) setError(e.message);
+        });
+    return () => {
+      alive = false;
+    };
+  }, []);
   async function refresh() {
     if (driver && planningOptions)
       await materializePlanning(date, planningOptions, (body) =>
@@ -100,7 +130,7 @@ export default function Trips({
           setPlanningOptions(data);
           const value = data.links[0]?.today || data.defaultToday;
           setToday(value);
-          setDate(value);
+          setDate(initialDate || value);
         }
       })
       .catch((e) => {
@@ -172,13 +202,17 @@ export default function Trips({
     setReasons({});
     setTools("");
   }, [selected]);
-  async function run(fn: () => Promise<void>, message: string) {
+  async function run(
+    fn: () => Promise<void>,
+    message: string,
+    refreshAfter = true,
+  ) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await fn();
-      await refresh();
+      if (refreshAfter) await refresh();
       setNotice(message);
     } catch (e) {
       setError((e as Error).message);
@@ -419,7 +453,10 @@ export default function Trips({
                           ? "Alteração em análise"
                           : p.locked_at
                             ? "Bloqueado"
-                            : planningLabels[p.status]}
+                            : planningLabel({
+                                status: p.status,
+                                routine_revision: p.routine_revision ?? null,
+                              })}
                     </Text>
                   </Pressable>
                 );
@@ -445,22 +482,27 @@ export default function Trips({
                     (reasons.initial || "").trim().length < 10)
                 }
                 onPress={() =>
-                  run(async () => {
-                    const result = await api<{ id: string }>("trips", {
-                      id: creationId,
-                      date,
-                      direction,
-                      driverId,
-                      vehicleId,
-                      planIds: ids,
-                      ...(needsInitialException
-                        ? { exceptionReason: reasons.initial }
-                        : {}),
-                    });
-                    setSelected(result.id);
-                    setPreparing(false);
-                    setIds([]);
-                  }, "Viagem preparada. Revise os passageiros.")
+                  run(
+                    async () => {
+                      const result = await api<{ id: string }>("trips", {
+                        id: creationId,
+                        date,
+                        direction,
+                        driverId,
+                        vehicleId,
+                        planIds: ids,
+                        ...(needsInitialException
+                          ? { exceptionReason: reasons.initial }
+                          : {}),
+                      });
+                      if (onPrepared) onPrepared(result.id, date);
+                      else setSelected(result.id);
+                      setPreparing(false);
+                      setIds([]);
+                    },
+                    "Viagem preparada. Revise os passageiros.",
+                    !onPrepared,
+                  )
                 }
               />
             </View>
@@ -506,15 +548,17 @@ export default function Trips({
                   Cancelamento: {trip.cancellation_reason}
                 </Text>
               )}
-              <TripClosure
-                trip={trip}
-                busy={busy}
-                onClose={(body) =>
-                  run(async () => {
-                    await api(`trips/${trip.id}/close`, body);
-                  }, "Conferência registrada. Confira o resultado do encerramento acima.")
-                }
-              />
+              {!managementOnly && (
+                <TripClosure
+                  trip={trip}
+                  busy={busy}
+                  onClose={(body) =>
+                    run(async () => {
+                      await api(`trips/${trip.id}/close`, body);
+                    }, "Conferência registrada. Confira o resultado do encerramento acima.")
+                  }
+                />
+              )}
               {trip.passengers.map((p) => (
                 <View key={p.id} style={s.passenger}>
                   <Text style={s.meta}>
@@ -523,27 +567,36 @@ export default function Trips({
                   <Text style={s.title}>{p.student_name}</Text>
                   <Text style={s.note}>
                     {p.school_name} · Cadastro {p.student_id.slice(-8)}
-                    {"\n"}Planejamento: {planningLabels[p.planning_status]}
+                    {"\n"}Planejamento:{" "}
+                    {planningLabel({
+                      status: p.planning_status,
+                      routine_revision:
+                        p.routine_revision === undefined
+                          ? 1
+                          : p.routine_revision,
+                    })}
                     {p.exceptional
                       ? " · Inclusão autorizada pelo transporte"
                       : ""}
                   </Text>
                   {p.reason && <Text style={s.note}>Motivo: {p.reason}</Text>}
-                  <Movements
-                    client={client}
-                    trip={trip}
-                    passenger={p}
-                    role={context.role}
-                    busy={busy}
-                    onConfirm={(kind) =>
-                      run(async () => {
-                        await api(
-                          `trips/${trip.id}/passengers/${p.id}/movements/${kind}/confirm`,
-                          {},
-                        );
-                      }, "Confirmação registrada para esta criança.")
-                    }
-                  />
+                  {!managementOnly && (
+                    <Movements
+                      client={client}
+                      trip={trip}
+                      passenger={p}
+                      role={context.role}
+                      busy={busy}
+                      onConfirm={(kind) =>
+                        run(async () => {
+                          await api(
+                            `trips/${trip.id}/passengers/${p.id}/movements/${kind}/confirm`,
+                            {},
+                          );
+                        }, "Confirmação registrada para esta criança.")
+                      }
+                    />
+                  )}
                   {p.link_status !== "ACTIVE" && (
                     <Text style={s.error}>
                       Vínculo inativo. Histórico preservado.
@@ -640,7 +693,7 @@ export default function Trips({
                         "Aluno para inclusão excepcional",
                         extraPlans.map((p) => ({
                           id: p.id,
-                          name: `${p.student_name} · ${p.school_name} · ${planningLabels[p.status]} · ${p.student_id.slice(-8)}`,
+                          name: `${p.student_name} · ${p.school_name} · ${planningLabel({ status: p.status, routine_revision: p.routine_revision ?? null })} · ${p.student_id.slice(-8)}`,
                         })),
                         extra,
                         setExtra,
@@ -831,7 +884,10 @@ export default function Trips({
                         {"\n"}
                         {p.pending_change
                           ? "Alteração em análise"
-                          : planningLabels[p.status]}
+                          : planningLabel({
+                              status: p.status,
+                              routine_revision: p.routine_revision ?? null,
+                            })}
                       </Text>
                     </View>
                   ))}

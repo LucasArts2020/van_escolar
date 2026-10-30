@@ -128,10 +128,12 @@ export function notificationText(n: any) {
     const closed = n.event_kind === "ALERT_RESOLVED";
     return {
       title: closed
-        ? "Atendimento encerrado"
+        ? d.requiresAcknowledgement
+          ? "Urgência resolvida · ciência"
+          : "Atendimento encerrado"
         : level + " · " + (kinds[d.caseKind] || "Ocorrência"),
       body: closed
-        ? `O atendimento de ${n.student_name} foi encerrado com registro auditável. Consulte os fatos e as confirmações no detalhe.`
+        ? `O atendimento de ${n.student_name} foi encerrado com registro auditável. Consulte os fatos e as confirmações no detalhe.${d.requiresAcknowledgement ? " As partes envolvidas devem confirmar ciência da resolução. Ler a mensagem não registra ciência." : ""}`
         : `${n.student_name}: ${kinds[d.caseKind] || "ocorrência"}. ${d.missingRoles?.length ? "Falta confirmação de " + d.missingRoles.join(" e ").toLowerCase() + ". " : "As confirmações não encerram sozinhas esta ocorrência. "}Ler ou assumir não comprova a entrega.`,
     };
   }

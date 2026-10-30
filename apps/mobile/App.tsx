@@ -22,6 +22,8 @@ import Operation from "./Operation";
 import Notifications from "./Notifications";
 import Alerts from "./Alerts";
 import SchoolCentral from "./SchoolCentral";
+import DriverDay from "./DriverDay";
+import { theme } from "./theme";
 import type { JourneyTarget } from "../shared/navigation";
 import { notificationsModule, registerPush } from "./push";
 type Context = {
@@ -67,6 +69,7 @@ export default function App() {
   );
   const [canGoBack, setCanGoBack] = useState(false),
     [schoolAlertsContext, setSchoolAlertsContext] = useState("");
+  const [notificationsContext, setNotificationsContext] = useState("");
   const schoolReturns = useRef<
     Array<{
       view: string;
@@ -80,7 +83,8 @@ export default function App() {
     scrollPosition = useRef(0),
     schoolPosition = useRef(0);
   function saveSchoolReturn() {
-    if (context?.role !== "SCHOOL") return;
+    if (!context || !["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role))
+      return;
     schoolReturns.current.push({
       view,
       target: journeyTarget,
@@ -103,7 +107,11 @@ export default function App() {
       setAlertId(target.alertId || "");
       setAlertVisit((v) => v + 1);
     }
-    setView(target.view);
+    setView(
+      target.view === "trips" && context?.role === "DRIVER"
+        ? "home"
+        : target.view,
+    );
     scroll.current?.scrollTo({ y: 0, animated: false });
   }
   function returnToSchool() {
@@ -132,12 +140,25 @@ export default function App() {
     clearSchoolReturns();
     setJourneyTarget(null);
     setSchoolAlertsContext("");
+    setNotificationsContext("");
     schoolPosition.current = 0;
     scrollPosition.current = 0;
   }, [context?.id, session]);
   useEffect(() => {
-    if (context?.role === "SCHOOL" && view === "alerts")
+    if (
+      context &&
+      ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+      view === "alerts"
+    )
       setSchoolAlertsContext(context.id);
+  }, [context?.id, view]);
+  useEffect(() => {
+    if (
+      context &&
+      ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+      view === "notifications"
+    )
+      setNotificationsContext(context.id);
   }, [context?.id, view]);
   async function api<T>(
     path: string,
@@ -350,15 +371,15 @@ export default function App() {
             scrollPosition.current = event.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={100}
-          contentContainerStyle={s.container}
+          contentContainerStyle={[s.container, !!me && s.workspaceContainer]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={s.brandRow}>
+          <View style={[s.brandRow, !!me && s.workspaceBrand]}>
             <View style={s.brandIcon}>
               <Text style={{ color: "white", fontSize: 24 }}>↝</Text>
             </View>
             <Text style={s.brand}>
-              caminho<Text style={{ color: "#bda56a" }}>.</Text>
+              caminho<Text style={{ color: theme.color.gold }}>.</Text>
             </Text>
           </View>
           {!me ? (
@@ -511,8 +532,8 @@ export default function App() {
             </>
           ) : (
             <>
-              {context?.role === "SCHOOL" && (
-                <View style={s.tabs}>
+              {context && (
+                <View style={s.accountTools}>
                   <Link
                     title="Mensagens"
                     onPress={() => {
@@ -541,32 +562,64 @@ export default function App() {
                   />
                 </View>
               )}
-              <View style={s.tabs}>
-                {(context?.role === "SCHOOL"
+              <View
+                style={[
+                  s.tabs,
+                  !!context &&
+                    ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+                    s.operationalTabs,
+                ]}
+              >
+                {(context?.role === "DRIVER"
                   ? [
-                      ["home", "Central"],
-                      ["registry", "Alunos e transportes"],
+                      ["home", "Meu dia"],
+                      ["registry", "Alunos e frota"],
                       ["more", "Mais"],
                     ]
-                  : [
-                      ["home", "Meu espaço"],
-                      ["notifications", "Notificações"],
-                      ["alerts", "Alertas"],
-                      ["trips", "Viagens"],
-                      ["history", "Histórico"],
-                      ["operation", "Preparação"],
-                      ["planning", "Planejamento"],
-                      [
-                        "registry",
-                        context?.role === "GUARDIAN" ? "Filhos" : "Cadastros",
-                      ],
-                      ["contexts", "Contextos"],
-                      ["profile", "Meu perfil"],
-                    ]
+                  : context?.role === "SCHOOL"
+                    ? [
+                        ["home", "Central"],
+                        ["registry", "Alunos e transportes"],
+                        ["more", "Mais"],
+                      ]
+                    : context?.role === "GUARDIAN"
+                      ? [
+                          ["home", "Meus filhos"],
+                          ["planning", "Agenda"],
+                          ["more", "Mais"],
+                        ]
+                      : [
+                          ["home", "Meu espaço"],
+                          ["notifications", "Notificações"],
+                          ["alerts", "Alertas"],
+                          ["trips", "Viagens"],
+                          ["history", "Histórico"],
+                          ["operation", "Preparação"],
+                          ["planning", "Planejamento"],
+                          [
+                            "registry",
+                            context?.role === "GUARDIAN"
+                              ? "Filhos"
+                              : "Cadastros",
+                          ],
+                          ["contexts", "Contextos"],
+                          ["profile", "Meu perfil"],
+                        ]
                 ).map(([key, label]) => (
                   <Pressable
                     key={key}
-                    style={[s.tab, view === key && s.tabSelected]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: view === key }}
+                    style={({ pressed }) => [
+                      s.tab,
+                      !!context &&
+                        ["SCHOOL", "DRIVER", "GUARDIAN"].includes(
+                          context.role,
+                        ) &&
+                        s.operationalTab,
+                      view === key && s.tabSelected,
+                      pressed && s.pressed,
+                    ]}
                     onPress={() => {
                       setNotificationId("");
                       if (key === "alerts") {
@@ -575,7 +628,13 @@ export default function App() {
                       }
                       if (key === "notifications")
                         setNotificationVisit((v) => v + 1);
-                      if (context?.role === "SCHOOL" && key === "home")
+                      if (
+                        context &&
+                        ["SCHOOL", "DRIVER", "GUARDIAN"].includes(
+                          context.role,
+                        ) &&
+                        key === "home"
+                      )
                         returnToSchool();
                       else {
                         clearSchoolReturns();
@@ -583,9 +642,16 @@ export default function App() {
                         setView(key);
                       }
                     }}
-                    accessibilityRole="button"
                   >
-                    <Text style={s.link}>{label}</Text>
+                    <Text
+                      style={[
+                        s.link,
+                        s.tabText,
+                        view === key && s.tabTextSelected,
+                      ]}
+                    >
+                      {label}
+                    </Text>
                   </Pressable>
                 ))}
               </View>
@@ -595,43 +661,73 @@ export default function App() {
                   : "SEM VÍNCULO ATIVO"}
               </Text>
               <Text style={s.title}>
-                {context?.role === "SCHOOL" && view === "home"
-                  ? "Central da escola."
-                  : view === "more"
-                    ? "Mais."
-                    : view === "operation"
-                      ? "Preparação para operação."
-                      : view === "profile"
-                        ? "Seu perfil."
-                        : view === "notifications"
-                          ? "Cada atualização, mais cuidado."
-                          : view === "alerts"
-                            ? "Alertas e ocorrências."
-                            : view === "history"
-                              ? "Histórico e correções."
-                              : view === "trips"
-                                ? "Viagens e passageiros."
-                                : view === "planning"
-                                  ? "Rotina e planejamento."
-                                  : view === "registry"
+                {context?.role === "DRIVER" && view === "home"
+                  ? "Meu dia."
+                  : context?.role === "SCHOOL" && view === "home"
+                    ? "Central da escola."
+                    : view === "more"
+                      ? "Mais."
+                      : view === "operation"
+                        ? "Regras e ajuda"
+                        : view === "profile"
+                          ? "Seu perfil."
+                          : view === "notifications"
+                            ? "Cada atualização, mais cuidado."
+                            : view === "alerts"
+                              ? "Alertas e ocorrências."
+                              : view === "history"
+                                ? "Histórico e correções."
+                                : view === "trips"
+                                  ? context?.role === "GUARDIAN"
+                                    ? "Acompanhamento dos filhos"
+                                    : "Viagens e passageiros"
+                                  : view === "planning"
                                     ? context?.role === "GUARDIAN"
-                                      ? "Seus filhos."
-                                      : "Cadastros e vínculos."
-                                    : view === "contexts"
-                                      ? "Seus contextos."
-                                      : `Olá, ${me.user.name.split(" ")[0]}.`}
+                                      ? "Agenda"
+                                      : "Rotina e planejamento"
+                                    : view === "registry"
+                                      ? context?.role === "GUARDIAN"
+                                        ? "Seus filhos."
+                                        : "Cadastros e vínculos."
+                                      : view === "contexts"
+                                        ? "Seus contextos."
+                                        : context?.role === "GUARDIAN"
+                                          ? "Meus filhos"
+                                          : `Olá, ${me.user.name.split(" ")[0]}.`}
               </Text>
-              {context?.role === "SCHOOL" && view !== "home" && (
-                <Link
-                  title={
-                    canGoBack
-                      ? "← Voltar ao ponto anterior"
-                      : "← Voltar à Central"
-                  }
-                  onPress={
-                    canGoBack ? returnToPreviousSchoolPoint : returnToSchool
-                  }
-                />
+              {context &&
+                ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+                view !== "home" && (
+                  <Link
+                    title={
+                      canGoBack
+                        ? "← Voltar ao ponto anterior"
+                        : context?.role === "DRIVER"
+                          ? "← Voltar ao Meu dia"
+                          : context?.role === "GUARDIAN"
+                            ? "← Voltar aos meus filhos"
+                            : "← Voltar à Central"
+                    }
+                    onPress={
+                      canGoBack ? returnToPreviousSchoolPoint : returnToSchool
+                    }
+                  />
+                )}
+              {context?.role === "DRIVER" && (
+                <View style={view !== "home" ? { display: "none" } : undefined}>
+                  <DriverDay
+                    key={context.id}
+                    context={context}
+                    client={api}
+                    active={view === "home"}
+                    onOpenTarget={openSchoolTarget}
+                    target={
+                      journeyTarget?.view === "trips"
+                        ? journeyTarget
+                        : undefined
+                    }
+                  />
+                </View>
               )}
               {context?.role === "SCHOOL" && (
                 <View style={view !== "home" ? { display: "none" } : undefined}>
@@ -644,54 +740,87 @@ export default function App() {
                   />
                 </View>
               )}
-              {context?.role === "SCHOOL" && view === "more" && (
-                <View style={s.card}>
-                  <Link
-                    title="Pendências e ocorrências · todas as datas"
-                    onPress={() => {
-                      setAlertId("");
-                      setAlertVisit((v) => v + 1);
-                      setView("alerts");
-                    }}
-                  />
-                  <Link
-                    title="Histórico das crianças"
-                    onPress={() => {
-                      setJourneyTarget(null);
-                      setView("history");
-                    }}
-                  />
-                  <Link
-                    title="Orientações de operação"
-                    onPress={() => setView("operation")}
-                  />
-                  <Text style={s.note}>
-                    Ambiente de teste · uso real não liberado.
-                  </Text>
-                </View>
-              )}
+              {context &&
+                ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+                view === "more" && (
+                  <View style={s.card}>
+                    {context.role === "GUARDIAN" && (
+                      <>
+                        <Link
+                          title="Acompanhar meus filhos"
+                          onPress={() => setView("trips")}
+                        />
+                        <Link
+                          title="Dados dos filhos e vínculos"
+                          onPress={() => setView("registry")}
+                        />
+                      </>
+                    )}
+                    <Link
+                      title="Pendências e ocorrências · todas as datas"
+                      onPress={() => {
+                        setAlertId("");
+                        setAlertVisit((v) => v + 1);
+                        setView("alerts");
+                      }}
+                    />
+                    {context.role === "DRIVER" && (
+                      <Link
+                        title="Planejamento e solicitações"
+                        onPress={() => setView("planning")}
+                      />
+                    )}
+                    <Link
+                      title="Histórico das crianças"
+                      onPress={() => {
+                        setJourneyTarget(null);
+                        setView("history");
+                      }}
+                    />
+                    <Link
+                      title="Regras e ajuda"
+                      onPress={() => setView("operation")}
+                    />
+                    <Text style={s.note}>
+                      Ambiente de teste · uso real não liberado.
+                    </Text>
+                  </View>
+                )}
               {view === "operation" && context && (
-                <Operation role={context.role} onNavigate={setView} />
+                <Operation
+                  role={context.role}
+                  onNavigate={(next) =>
+                    setView(
+                      context?.role === "DRIVER" &&
+                        ["trips", "overview"].includes(next)
+                        ? "home"
+                        : next,
+                    )
+                  }
+                />
               )}
               {context &&
                 (view === "alerts" ||
-                  (context.role === "SCHOOL" &&
+                  (["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
                     schoolAlertsContext === context.id)) && (
                   <View
                     style={view !== "alerts" ? { display: "none" } : undefined}
                   >
                     <Alerts
                       key={
-                        context.role === "SCHOOL"
+                        ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role)
                           ? context.id
                           : context.id + alertId + alertVisit
                       }
                       context={context}
                       client={api}
                       initialId={alertId}
+                      initialAwaiting={journeyTarget?.awaitingAcknowledgement}
                       active={view === "alerts"}
                       onSelect={
-                        context.role === "SCHOOL" ? setAlertId : undefined
+                        ["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role)
+                          ? setAlertId
+                          : undefined
                       }
                       onOpenTarget={openSchoolTarget}
                     />
@@ -700,21 +829,31 @@ export default function App() {
               {view === "planning" && context && (
                 <Planning key={context.id} context={context} client={api} />
               )}
-              {view === "notifications" && context && (
-                <Notifications
-                  key={context.id + notificationId + notificationVisit}
-                  context={context}
-                  client={api}
-                  initialId={notificationId}
-                  onOpenAlert={(id) => {
-                    saveSchoolReturn();
-                    setAlertId(id);
-                    setAlertVisit((v) => v + 1);
-                    setView("alerts");
-                  }}
-                />
-              )}
-              {view === "trips" && context && (
+              {context &&
+                (view === "notifications" ||
+                  (["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role) &&
+                    notificationsContext === context.id)) && (
+                  <View
+                    style={
+                      view !== "notifications" ? { display: "none" } : undefined
+                    }
+                  >
+                    <Notifications
+                      key={context.id + notificationId + notificationVisit}
+                      active={view === "notifications"}
+                      context={context}
+                      client={api}
+                      initialId={notificationId}
+                      onOpenAlert={(id) => {
+                        saveSchoolReturn();
+                        setAlertId(id);
+                        setAlertVisit((v) => v + 1);
+                        setView("alerts");
+                      }}
+                    />
+                  </View>
+                )}
+              {view === "trips" && context && context.role !== "DRIVER" && (
                 <Trips key={context.id} context={context} client={api} />
               )}
               {view === "history" && context && (
@@ -726,7 +865,14 @@ export default function App() {
                       "")
                   }
                   client={api}
-                  onNavigate={setView}
+                  onNavigate={(next) =>
+                    setView(
+                      context?.role === "DRIVER" &&
+                        ["trips", "overview"].includes(next)
+                        ? "home"
+                        : next,
+                    )
+                  }
                   initialTarget={
                     journeyTarget?.view === "history"
                       ? journeyTarget
@@ -743,49 +889,56 @@ export default function App() {
                   onContextsChanged={() => refresh(session!)}
                 />
               )}
-              {view === "home" && context?.role !== "SCHOOL" && (
-                <>
-                  {context?.role === "GUARDIAN" && (
-                    <Notifications
-                      key={context.id}
-                      context={context}
-                      client={api}
-                      home
-                    />
-                  )}
-                  <View style={s.hero}>
-                    <Text style={s.heroTitle}>
-                      {context?.role === "DRIVER"
-                        ? "Seu espaço de motorista."
-                        : context?.role === "GUARDIAN"
+              {view === "home" &&
+                context?.role !== "SCHOOL" &&
+                context?.role !== "DRIVER" && (
+                  <>
+                    {context?.role === "GUARDIAN" && (
+                      <Notifications
+                        key={context.id}
+                        context={context}
+                        client={api}
+                        home
+                        onOpenAcknowledgements={() =>
+                          openSchoolTarget({
+                            view: "alerts",
+                            contextId: context.id,
+                            date: "",
+                            awaitingAcknowledgement: true,
+                          })
+                        }
+                      />
+                    )}
+                    <View style={s.hero}>
+                      <Text style={s.heroTitle}>
+                        {context?.role === "GUARDIAN"
                           ? "Seu espaço de responsável."
                           : "Seu espaço da escola."}
-                    </Text>
-                    <Text style={s.heroText}>
-                      {context?.organization_name ||
-                        "Aguarde um convite verificado para acessar uma organização."}
-                    </Text>
-                    <Text style={s.heroText}>
-                      Sua identidade acompanha cada ação.
-                    </Text>
-                  </View>
-                  <View style={s.card}>
-                    <Text style={s.cardTitle}>Um passo de cada vez.</Text>
-                    <Text style={s.description}>
-                      Alunos e vínculos já estão disponíveis na aba{" "}
-                      {context?.role === "GUARDIAN" ? "Filhos" : "Cadastros"}. A
-                      rotina semanal e as confirmações por data estão em
-                      Planejamento. Prepare viagens e registre confirmações
-                      individuais de embarque e recebimento na aba Viagens.{" "}
-                      Confira histórico, correções e orientações na aba
-                      Preparação.
-                    </Text>
-                    <Text style={s.badge}>
-                      10 / 10 · Teste local, uso real não liberado
-                    </Text>
-                  </View>
-                </>
-              )}
+                      </Text>
+                      <Text style={s.heroText}>
+                        {context?.organization_name ||
+                          "Aguarde um convite verificado para acessar uma organização."}
+                      </Text>
+                      <Text style={s.heroText}>
+                        Sua identidade acompanha cada ação.
+                      </Text>
+                    </View>
+                    <View style={s.card}>
+                      <Text style={s.cardTitle}>Organize os próximos dias</Text>
+                      <Text style={s.description}>
+                        Consulte a rotina e informe o uso do transporte na ida e
+                        na volta.
+                      </Text>
+                      <Link
+                        title="Abrir agenda"
+                        onPress={() => setView("planning")}
+                      />
+                      <Text style={s.note}>
+                        Histórico, dados dos filhos e orientações estão em Mais.
+                      </Text>
+                    </View>
+                  </>
+                )}
               {view === "contexts" && (
                 <>
                   {me.contexts.map((c) => (
@@ -882,7 +1035,11 @@ function Action({
   return (
     <Pressable
       accessibilityRole="button"
-      style={[s.button, busy && { opacity: 0.5 }]}
+      style={({ pressed }) => [
+        s.button,
+        pressed && s.pressed,
+        busy && { opacity: 0.65 },
+      ]}
       disabled={busy}
       onPress={onPress}
     >
@@ -898,7 +1055,7 @@ function Link({ title, onPress }: { title: string; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
-      style={{ paddingVertical: 10 }}
+      style={({ pressed }) => [s.linkButton, pressed && s.pressed]}
       onPress={onPress}
     >
       <Text style={s.link}>{title}</Text>
@@ -906,135 +1063,205 @@ function Link({ title, onPress }: { title: string; onPress: () => void }) {
   );
 }
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f7f8f4", justifyContent: "center" },
-  container: { padding: 26, paddingTop: 45, flexGrow: 1 },
+  root: {
+    flex: 1,
+    backgroundColor: theme.color.background,
+    justifyContent: "center",
+  },
+  container: { padding: 24, paddingTop: 36, flexGrow: 1 },
+  workspaceContainer: { paddingHorizontal: 16, paddingTop: 20 },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
-    marginBottom: 43,
+    gap: 10,
+    marginBottom: 36,
   },
+  workspaceBrand: { marginBottom: 18 },
   brandIcon: {
-    backgroundColor: "#23705b",
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    backgroundColor: theme.color.primary,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
   },
   brand: {
     fontSize: 30,
     fontWeight: "800",
-    color: "#213b35",
+    color: theme.color.ink,
     letterSpacing: -1,
   },
   eyebrow: {
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1.4,
-    color: "#7c9372",
-    marginBottom: 14,
+    letterSpacing: 1.5,
+    color: theme.color.muted,
+    marginBottom: 12,
   },
   title: {
-    fontSize: 34,
-    fontWeight: "600",
-    letterSpacing: -1,
-    lineHeight: 43,
-    color: "#213b35",
-    marginBottom: 17,
+    fontSize: 30,
+    fontWeight: "700",
+    letterSpacing: -0.8,
+    lineHeight: 38,
+    color: theme.color.ink,
+    marginBottom: 20,
   },
   description: {
     fontSize: 14,
-    color: "#86927e",
-    lineHeight: 24,
+    color: theme.color.muted,
+    lineHeight: 23,
     marginBottom: 24,
   },
-  label: { fontSize: 12, fontWeight: "600", color: "#213b35", marginBottom: 9 },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: theme.color.ink,
+    marginBottom: 9,
+  },
   input: {
-    backgroundColor: "#fff",
+    backgroundColor: theme.color.surface,
     borderWidth: 1,
-    borderColor: "#dce3d7",
-    borderRadius: 8,
-    height: 49,
+    borderColor: theme.color.line,
+    borderRadius: theme.radius.control,
+    minHeight: 52,
     paddingHorizontal: 14,
-    color: "#213b35",
+    paddingVertical: 12,
+    color: theme.color.ink,
     marginBottom: 20,
   },
   button: {
-    backgroundColor: "#23705b",
+    backgroundColor: theme.color.primary,
+    minHeight: 50,
     padding: 16,
-    borderRadius: 8,
+    borderRadius: theme.radius.control,
     alignItems: "center",
+    justifyContent: "center",
     marginTop: 7,
     marginBottom: 10,
   },
-  buttonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  link: { fontSize: 12, color: "#23705b", fontWeight: "600" },
+  buttonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  link: {
+    fontSize: 13,
+    color: theme.color.primary,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+  linkButton: {
+    minHeight: 44,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
+    justifyContent: "center",
+  },
+  pressed: { opacity: 0.72 },
   flowButtons: { marginBottom: 20 },
   card: {
-    padding: 22,
-    backgroundColor: "#fff",
+    padding: 20,
+    backgroundColor: theme.color.surface,
     borderWidth: 1,
-    borderColor: "#e3e8dc",
-    borderRadius: 12,
-    marginBottom: 18,
+    borderColor: theme.color.line,
+    borderRadius: theme.radius.card,
+    marginBottom: 16,
   },
   cardTitle: {
-    fontSize: 17,
-    color: "#213b35",
-    fontWeight: "600",
+    fontSize: 18,
+    lineHeight: 25,
+    color: theme.color.ink,
+    fontWeight: "700",
     marginBottom: 10,
   },
-  note: { fontSize: 12, lineHeight: 22, color: "#8d9983" },
-  demoRow: { flexDirection: "row", gap: 10, marginTop: 16 },
+  note: { fontSize: 13, lineHeight: 21, color: theme.color.muted },
+  demoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 16 },
   chip: {
-    backgroundColor: "#eef3e7",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 7,
+    backgroundColor: theme.color.soft,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: theme.radius.control,
+    justifyContent: "center",
   },
   error: {
-    backgroundColor: "#fff0ed",
-    padding: 15,
-    color: "#9b3b2b",
-    fontSize: 12,
+    backgroundColor: theme.color.dangerSoft,
+    padding: 16,
+    color: theme.color.danger,
+    fontSize: 13,
     lineHeight: 21,
-    borderRadius: 8,
+    borderRadius: theme.radius.control,
     marginTop: 15,
   },
   success: {
-    backgroundColor: "#e6f2e4",
-    padding: 15,
-    color: "#276147",
-    fontSize: 12,
+    backgroundColor: theme.color.soft,
+    padding: 16,
+    color: theme.color.primary,
+    fontSize: 13,
     lineHeight: 21,
-    borderRadius: 8,
+    borderRadius: theme.radius.control,
     marginTop: 15,
   },
   hero: {
-    backgroundColor: "#174e40",
-    padding: 25,
-    borderRadius: 13,
-    marginBottom: 22,
+    backgroundColor: theme.color.primaryDark,
+    padding: 24,
+    borderRadius: theme.radius.card,
+    marginBottom: 20,
   },
   heroTitle: {
     color: "#fff",
     fontSize: 24,
-    fontWeight: "500",
+    fontWeight: "600",
     lineHeight: 32,
-    marginBottom: 17,
+    marginBottom: 16,
   },
-  heroText: { color: "#c2d2ba", lineHeight: 23, fontSize: 13, marginBottom: 8 },
-  badge: { fontSize: 10, color: "#7f9868", marginTop: 12 },
-  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 30 },
-  tab: { paddingHorizontal: 11, paddingVertical: 9, borderRadius: 6 },
-  tabSelected: { backgroundColor: "#e7efdf" },
-  selectedCard: { borderColor: "#6c9564", borderWidth: 2 },
+  heroText: { color: "#d4e8df", lineHeight: 23, fontSize: 13, marginBottom: 8 },
+  badge: {
+    fontSize: 11,
+    color: theme.color.primary,
+    marginTop: 12,
+    lineHeight: 17,
+  },
+  accountTools: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    backgroundColor: theme.color.surface,
+    borderRadius: theme.radius.control,
+    borderWidth: 1,
+    borderColor: theme.color.line,
+    marginBottom: 18,
+  },
+  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 24 },
+  operationalTabs: {
+    flexWrap: "nowrap",
+    padding: 5,
+    backgroundColor: theme.color.soft,
+    borderRadius: 16,
+  },
+  operationalTab: { flex: 1, minWidth: 0 },
+  tab: {
+    minHeight: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 11,
+    borderRadius: theme.radius.control,
+    justifyContent: "center",
+  },
+  tabText: { textAlign: "center", fontSize: 12, lineHeight: 18 },
+  tabSelected: { backgroundColor: theme.color.primary },
+  tabTextSelected: { color: "#fff", fontWeight: "700" },
+  selectedCard: {
+    borderColor: theme.color.primary,
+    backgroundColor: theme.color.soft,
+  },
   footer: {
-    fontSize: 10,
-    color: "#a0aa93",
+    fontSize: 11,
+    color: theme.color.muted,
     textAlign: "center",
-    marginTop: 30,
-    marginBottom: 10,
+    marginTop: 28,
+    marginBottom: 12,
+    lineHeight: 17,
   },
 });

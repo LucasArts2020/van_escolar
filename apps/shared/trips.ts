@@ -11,7 +11,7 @@ export const tripStatusLabel = (status: string, exceptional = false) =>
     ? "Concluída com contabilização excepcional"
     : tripLabels[status];
 export const dispositionLabels: Record<string, string> = {
-  EXPECTED: "A transportar",
+  EXPECTED: "Incluída na viagem",
   REVIEW_REQUIRED: "Definir destinação",
   NOT_TRANSPORTED: "Não transportada",
 };
@@ -22,6 +22,7 @@ export const planningLabels: Record<string, string> = {
   NOT_EXPECTED: "Sem previsão na rotina",
 };
 export type TripPlan = {
+  routine_revision?: number | null;
   id: string;
   status: string;
   scheduled: boolean;
@@ -39,6 +40,7 @@ export type TripOptions = {
   vehicles: { id: string; name: string; plate: string; capacity: number }[];
 };
 export type Passenger = {
+  routine_revision?: number | null;
   exceptionalResolution?: {
     id: string;
     actorName: string;
@@ -77,6 +79,7 @@ export type MovementConfirmationResult = {
   unchanged: boolean;
   passenger: Passenger;
   tripVersion: number;
+  tripSummary: TripSummary;
 };
 export type Movement = {
   id: string | null;
@@ -221,7 +224,7 @@ export type TripCloseInput = {
   note?: string;
 };
 export const tripCounts = (t: Trip): [number, string][] => [
-  [t.counts.expected, "A transportar"],
+  [t.counts.expected, "Incluídos na viagem"],
   [t.counts.review, "A revisar"],
   [t.counts.notTransported, "Não transportadas"],
   [t.counts.boardingInformed, "Embarques informados"],
@@ -230,3 +233,62 @@ export const tripCounts = (t: Trip): [number, string][] => [
   [t.counts.delivered, "Entregas validadas"],
   [t.counts.openIssues, "Ocorrências abertas"],
 ];
+
+export type TripSummary = Pick<Trip, "id" | "version" | "status" | "counts"> & {
+  closure: Omit<Trip["closure"], "inspections"> & { pendingCount: number };
+};
+
+export function passengerCounts(passengers: Passenger[]): Trip["counts"] {
+  const active = passengers.filter((p) => p.active);
+  return {
+    total: active.length,
+    expected: active.filter((p) => p.disposition === "EXPECTED").length,
+    review: active.filter((p) => p.disposition === "REVIEW_REQUIRED").length,
+    notTransported: active.filter((p) => p.disposition === "NOT_TRANSPORTED")
+      .length,
+    boardingInformed: active.filter((p) => p.movements[0].state === "INFORMED")
+      .length,
+    boardingValidated: active.filter(
+      (p) => p.movements[0].state === "VALIDATED",
+    ).length,
+    pendingDelivery: active.filter((p) => p.possiblyOnboard).length,
+    delivered: active.filter(
+      (p) => !p.exceptionalResolution && p.movements[1].state === "VALIDATED",
+    ).length,
+    unaccounted: active.filter(
+      (p) =>
+        (!p.exceptionalResolution &&
+          p.disposition !== "NOT_TRANSPORTED" &&
+          p.movements[1].state !== "VALIDATED") ||
+        p.deliveryUnderReview,
+    ).length,
+    openIssues: active.reduce(
+      (n, p) =>
+        n +
+        p.issues.filter((i) => i.status !== "RESOLVED").length +
+        (p.alerts || []).filter((a) => a.kind !== "SEQUENCE_INCOMPLETE").length,
+      0,
+    ),
+  };
+}
+
+/** Explanation of the existing start controls; the POST still validates all rules. */
+export function tripStartBlockReason(
+  trip: Pick<
+    Trip,
+    "status" | "driver_membership_id" | "service_date" | "today" | "counts"
+  >,
+  membershipId: string,
+): string | null {
+  if (trip.status !== "PLANNED")
+    return "Esta viagem já saiu da etapa de planejamento.";
+  if (trip.driver_membership_id !== membershipId)
+    return "Somente o motorista designado pode iniciar esta viagem.";
+  if (trip.service_date !== trip.today)
+    return "A viagem só pode ser iniciada na sua data de operação.";
+  if (trip.counts.review > 0)
+    return `${trip.counts.review} ${trip.counts.review === 1 ? "criança aguarda revisão da participação" : "crianças aguardam revisão da participação"}. Defina quem será transportado, com motivo, antes de iniciar.`;
+  if (!trip.counts.expected)
+    return "Não há criança liberada para transporte nesta viagem. Revise as participações antes de iniciar.";
+  return null;
+}

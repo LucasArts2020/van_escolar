@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ShieldAlert,
@@ -17,6 +17,7 @@ import {
   alertStatuses,
   alertRoutes,
   alertEventLabels,
+  resolutionKinds,
 } from "../../shared/alerts";
 import { movementRoleLabels, MovementKind } from "../../shared/trips";
 import MovementsPanel from "./movements-panel";
@@ -29,12 +30,14 @@ type Context = {
 export default function AlertsPanel({
   context,
   initialId = "",
+  initialAwaiting = false,
   onOpenTarget,
   onSelect,
   active = true,
 }: {
   context: Context;
   initialId?: string;
+  initialAwaiting?: boolean;
   onOpenTarget?: (target: JourneyTarget) => void;
   onSelect?: (id: string) => void;
   active?: boolean;
@@ -50,8 +53,58 @@ export default function AlertsPanel({
     [loading, setLoading] = useState(true),
     [note, setNote] = useState(""),
     [action, setAction] = useState("CONTACT");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [awaiting, setAwaiting] = useState(initialAwaiting),
+    [pendingCount, setPendingCount] = useState(0);
+  const sending = useRef(false),
+    uncertain = useRef(false),
+    visit = useRef(0),
+    readSequence = useRef(0);
+  const returnPoint = useRef<{ top: number; focus: HTMLElement | null } | null>(
+    null,
+  );
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const effectiveNote = drafts[action] || "";
+
+  const listPath =
+    "alerts?closed=" + closed + "&awaitingAcknowledgement=" + awaiting;
   const [minutes, setMinutes] = useState([5, 10, 15]);
+  useEffect(() => {
+    if (!selected && returnPoint.current) {
+      const point = returnPoint.current;
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: point.top, behavior: "instant" });
+        if (point.focus?.isConnected)
+          point.focus.focus({ preventScroll: true });
+      });
+    }
+  }, [selected, items]);
+  useEffect(() => {
+    setAwaiting(initialAwaiting);
+    setClosed(initialAwaiting);
+  }, [initialAwaiting]);
+  useEffect(() => {
+    setSelected(initialId);
+  }, [initialId]);
+  useEffect(
+    () => () => {
+      visit.current++;
+      readSequence.current++;
+    },
+    [context.id],
+  );
   function select(id: string) {
+    if (sending.current) return;
+    if (id)
+      returnPoint.current = {
+        top: window.scrollY,
+        focus:
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null,
+      };
+    visit.current++;
     setSelected(id);
     onSelect?.(id);
   }
@@ -71,61 +124,86 @@ export default function AlertsPanel({
     return data;
   }
   async function refresh() {
-    if (selected) setDetail(await api<AlertDetail>("alerts/" + selected));
-    else {
+    const seq = ++readSequence.current;
+    const id = selected;
+    if (selected) {
+      const value = await api<AlertDetail>("alerts/" + selected);
+      if (seq === readSequence.current && selectedRef.current === id)
+        setDetail(value);
+    } else {
       const [list, opts] = await Promise.all([
-        api<{ items: AlertItem[] }>("alerts?closed=" + closed),
+        api<{ items: AlertItem[]; pendingCount: number }>(listPath),
         api<AlertOptions>("alerts/options"),
       ]);
-      setItems(list.items);
-      setOptions(opts);
+      if (seq === readSequence.current) {
+        setItems(list.items);
+        setPendingCount(list.pendingCount);
+        setOptions(opts);
+      }
     }
   }
   useEffect(() => {
     setDetail(null);
     setItems([]);
     setNote("");
-  }, [selected, closed, context.id]);
+    setDrafts({});
+    uncertain.current = false;
+    visit.current++;
+    readSequence.current++;
+  }, [selected, closed, awaiting, context.id]);
   useEffect(() => {
     if (!active) return;
     let alive = true;
     setError("");
     setLoading(true);
     const load = async () => {
+      if (sending.current) return;
+      const seq = ++readSequence.current;
       try {
         if (selected) {
           const data = await api<AlertDetail>("alerts/" + selected);
-          if (alive) setDetail(data);
+          if (alive && seq === readSequence.current) setDetail(data);
         } else {
           const [list, opts] = await Promise.all([
-            api<{ items: AlertItem[] }>("alerts?closed=" + closed),
+            api<{ items: AlertItem[]; pendingCount: number }>(listPath),
             api<AlertOptions>("alerts/options"),
           ]);
-          if (alive) {
+          if (alive && seq === readSequence.current) {
             setItems(list.items);
+            setPendingCount(list.pendingCount);
             setOptions(opts);
           }
         }
-        if (alive) setError("");
+        if (alive && seq === readSequence.current) setError("");
       } catch (e) {
-        if (alive) {
+        if (alive && seq === readSequence.current) {
           setError((e as Error).message);
           setDetail(null);
           setItems([]);
+          setDrafts({});
         }
       } finally {
-        if (alive) setLoading(false);
+        if (alive && seq === readSequence.current) setLoading(false);
       }
     };
     void load();
+    const resume = () => {
+      if (!document.hidden && navigator.onLine) void load();
+    };
+    window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
+    document.addEventListener("visibilitychange", resume);
     const timer = setInterval(() => {
       if (!document.hidden) void load();
     }, 15000);
     return () => {
       alive = false;
       clearInterval(timer);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
-  }, [selected, closed, context.id, active]);
+  }, [selected, closed, awaiting, context.id, active]);
   useEffect(() => {
     if (options?.policy)
       setMinutes([
@@ -134,17 +212,45 @@ export default function AlertsPanel({
         options.policy.critical_minutes,
       ]);
   }, [options?.policy?.revision]);
-  async function run(fn: () => Promise<void>, message: string) {
+  async function run(fn: () => Promise<unknown>, message: string) {
+    if (sending.current) return;
+    sending.current = true;
+    readSequence.current++;
+    const actionVisit = visit.current;
     setBusy(true);
     setError("");
     setNotice("");
     try {
+      if (uncertain.current) {
+        await refresh();
+        uncertain.current = false;
+        setNotice(
+          "Estado consultado. Confira os dados antes de tentar novamente.",
+        );
+        return;
+      }
       await fn();
       await refresh();
+      if (actionVisit !== visit.current) return;
       setNotice(message);
     } catch (e) {
+      if (actionVisit !== visit.current) return;
       setError((e as Error).message);
+      uncertain.current = true;
+      try {
+        await refresh();
+        uncertain.current = false;
+        if (e instanceof TypeError)
+          setError(
+            "A resposta do envio foi interrompida. O estado exibido foi consultado no servidor.",
+          );
+      } catch {
+        setError(
+          "Não foi possível consultar o estado. A próxima tentativa apenas verificará o servidor.",
+        );
+      }
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }
@@ -153,7 +259,7 @@ export default function AlertsPanel({
       new Date(at).toLocaleString("pt-BR", {
         timeZone: a?.timezone || "America/Sao_Paulo",
       });
-  function record(type: string, text = note) {
+  function record(type: string, text = drafts[type] || "") {
     if (!a) return;
     void run(
       async () => {
@@ -162,7 +268,7 @@ export default function AlertsPanel({
           note: text,
           expectedVersion: a.version,
         });
-        setNote("");
+        setDrafts((old) => ({ ...old, [type]: "" }));
       },
       type === "RESOLVED"
         ? "Atendimento encerrado com histórico preservado."
@@ -218,16 +324,31 @@ export default function AlertsPanel({
         <>
           <div className="alert-filters">
             <button
-              className={!closed ? "active" : ""}
-              onClick={() => setClosed(false)}
+              className={!closed && !awaiting ? "active" : ""}
+              onClick={() => {
+                setClosed(false);
+                setAwaiting(false);
+              }}
             >
               Em acompanhamento
             </button>
             <button
-              className={closed ? "active" : ""}
-              onClick={() => setClosed(true)}
+              className={closed && !awaiting ? "active" : ""}
+              onClick={() => {
+                setClosed(true);
+                setAwaiting(false);
+              }}
             >
               Resolvidas
+            </button>
+            <button
+              className={awaiting ? "active" : ""}
+              onClick={() => {
+                setAwaiting(true);
+                setClosed(true);
+              }}
+            >
+              Aguardando minha ciência ({pendingCount})
             </button>
           </div>
           {options?.canConfigure && (
@@ -423,7 +544,7 @@ export default function AlertsPanel({
                   )
                 }
               >
-                Assumir acompanhamento
+                Assumir atendimento
               </button>
             )}
             {a.status === "RESOLVED" && (
@@ -450,7 +571,7 @@ export default function AlertsPanel({
           />
           {a.actions.canRecord && (
             <section className="alert-record">
-              <h3>Registrar acompanhamento</h3>
+              <h3>Contato e verificação</h3>
               <p>
                 Registre um contato realizado ou uma verificação física que você
                 efetivamente fez. Anotações não substituem as confirmações.
@@ -479,8 +600,10 @@ export default function AlertsPanel({
                   Fatos, pessoas contatadas e resultado
                   <textarea
                     disabled={busy}
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
+                    value={effectiveNote}
+                    onChange={(e) =>
+                      setDrafts((old) => ({ ...old, [action]: e.target.value }))
+                    }
                     minLength={20}
                     maxLength={2000}
                     required
@@ -488,18 +611,121 @@ export default function AlertsPanel({
                   />
                 </label>
                 <button className="alert-button" disabled={busy}>
-                  Registrar acompanhamento
+                  {action === "CONTACT"
+                    ? "Registrar contato"
+                    : "Registrar verificação"}
                 </button>
               </form>
               <p className="small-note">{a.actions.resolutionExplanation}</p>
-              {a.actions.canResolve && (
-                <button
-                  className="alert-button resolve"
-                  disabled={busy || note.trim().length < 20}
-                  onClick={() => record("RESOLVED")}
-                >
-                  Encerrar atendimento verificado
-                </button>
+            </section>
+          )}
+          {a.status !== "RESOLVED" && (
+            <section className="alert-record urgency-resolution">
+              <h3>Resolver urgência</h3>
+              <p>{a.actions.resolutionExplanation}</p>
+              {a.actions.resolutionMode === "VERIFIED_FOLLOW_UP" && (
+                <ul>
+                  {a.actions.requirements?.map((r) => (
+                    <li key={r.id}>
+                      {r.met ? "✓" : "○"} {r.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {a.actions.resolutionMode === "VERIFIED_FOLLOW_UP" && (
+                <>
+                  <label>
+                    Justificativa da resolução
+                    <textarea
+                      rows={3}
+                      maxLength={2000}
+                      value={drafts.RESOLVED || ""}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setDrafts((old) => ({
+                          ...old,
+                          RESOLVED: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <button
+                    className="button"
+                    disabled={
+                      busy ||
+                      !a.actions.canResolve ||
+                      (drafts.RESOLVED || "").trim().length < 20
+                    }
+                    onClick={() => record("RESOLVED")}
+                  >
+                    Resolver urgência
+                  </button>
+                  <p className="small-note">
+                    Descreva a resolução com pelo menos 20 caracteres. Os
+                    requisitos acima devem estar cumpridos.
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+          {a.status === "RESOLVED" && (
+            <section className="alert-record urgency-resolution">
+              <h3>Urgência resolvida</h3>
+              <p>
+                {a.resolution?.actor_name || "Registro histórico"} ·{" "}
+                {time(
+                  a.resolution?.occurred_at || a.resolved_at || a.origin_at,
+                )}
+              </p>
+              <p>
+                {resolutionKinds[
+                  (a as AlertItem & { resolution_kind?: string })
+                    .resolution_kind || ""
+                ] || "Consulte a forma de resolução no histórico."}
+              </p>
+              <p>{a.resolution_note}</p>
+              {a.receipt ? (
+                <>
+                  <h4>Ciências pendentes: {a.receipt.pendingCount}</h4>
+                  <p>
+                    Ciência confirma o recebimento desta informação e não altera
+                    a viagem.
+                  </p>
+                  {a.receipt.recipients.map((r, i) => (
+                    <p key={i}>
+                      {r.name}
+                      {r.isMe ? " (você)" : ""} ·{" "}
+                      {r.acknowledgedAt
+                        ? "Ciente em " + time(r.acknowledgedAt)
+                        : r.revokedAt
+                          ? "Dispensada por perda de acesso"
+                          : "Aguardando ciência"}
+                    </p>
+                  ))}
+                  {a.receipt.missingRoles.map((role) => (
+                    <p key={role}>
+                      Sem destinatário ativo: {movementRoleLabels[role] || role}
+                    </p>
+                  ))}
+                  {a.receipt.canAcknowledge && (
+                    <button
+                      className="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await api(
+                            `alerts/${a.id}/resolution-acknowledgements`,
+                            { resolutionEventId: a.receipt!.eventId },
+                          );
+                        }, "Ciência da resolução registrada.")
+                      }
+                    >
+                      Confirmar ciência da resolução
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p>Esta resolução não possui solicitação de ciência.</p>
               )}
             </section>
           )}

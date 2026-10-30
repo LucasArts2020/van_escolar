@@ -1,3 +1,5 @@
+import { pendingResolutionCount } from "./resolution-receipts";
+import { planningPresentation } from "../../shared/planning-presentation";
 import { ForbiddenException, Inject, Injectable } from "@nestjs/common";
 import { ActorRequest } from "./auth";
 import { Database } from "./db";
@@ -22,6 +24,7 @@ type PlanningSummary = {
   version: number | null;
   deadlineAt: string | null;
   missingConfiguration: ("POLICY" | "ROUTINE")[];
+  snapshotMissingRoutine?: boolean;
   pendingChange: {
     id: string;
     requestedUsage: boolean;
@@ -115,12 +118,11 @@ export class SchoolDayService {
       );
       let planning: PlanningSummary;
       if (p.plan_id) {
-        const status =
-          p.plan_status === "PENDING"
-            ? "AWAITING_RESPONSE"
-            : p.plan_status === "NOT_EXPECTED" && !p.routine_revision
-              ? "MISSING_CONFIGURATION"
-              : p.plan_status;
+        const status = planningPresentation({
+          status: p.plan_status,
+          routine_revision: p.routine_revision,
+          current_routine_revision: p.current_routine_revision,
+        }).status as PlanningSummary["status"];
         planning = {
           source: "PERSISTED",
           status,
@@ -128,7 +130,8 @@ export class SchoolDayService {
           planId: p.plan_id,
           version: p.plan_version,
           deadlineAt: p.deadline_at,
-          missingConfiguration: !p.routine_revision ? ["ROUTINE"] : [],
+          missingConfiguration: !p.current_routine_revision ? ["ROUTINE"] : [],
+          snapshotMissingRoutine: !p.routine_revision,
           pendingChange: p.change_id
             ? {
                 id: p.change_id,
@@ -211,6 +214,11 @@ export class SchoolDayService {
     return {
       date,
       serverNow: now.toISOString(),
+      pendingAcknowledgements: await pendingResolutionCount(
+        this.db.pool,
+        req.actor.id,
+        req.context!.id,
+      ),
       today,
       tomorrow: addDays(today, 1),
       rows,

@@ -28,13 +28,18 @@ export default function Notifications({
   home = false,
   initialId = "",
   onOpenAlert,
+  onOpenAcknowledgements,
+  active = true,
 }: {
   context: Context;
   client: PushClient;
   home?: boolean;
   initialId?: string;
   onOpenAlert?: (id: string) => void;
+  onOpenAcknowledgements?: () => void;
+  active?: boolean;
 }) {
+  const [homePage, setHomePage] = useState(0);
   const [inbox, setInbox] = useState<Inbox | null>(null),
     [children, setChildren] = useState<ChildrenHome | null>(null);
   const [selection, setSelection] = useState(
@@ -55,10 +60,13 @@ export default function Notifications({
   async function load() {
     if (path) setJourney(await client<Journey>(path));
     else if (home)
-      setChildren(await client<ChildrenHome>("notifications/home"));
+      setChildren(
+        await client<ChildrenHome>("notifications/home?page=" + homePage),
+      );
     else setInbox(await client<Inbox>("notifications"));
   }
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     setJourney(null);
     setError("");
@@ -68,7 +76,7 @@ export default function Notifications({
         const result = path
           ? await client<Journey>(path)
           : home
-            ? await client<ChildrenHome>("notifications/home")
+            ? await client<ChildrenHome>("notifications/home?page=" + homePage)
             : await client<Inbox>("notifications");
         if (!alive) return;
         if (path) setJourney(result as Journey);
@@ -98,7 +106,7 @@ export default function Notifications({
       clearInterval(timer);
       subscription.remove();
     };
-  }, [context.id, path, home]);
+  }, [context.id, path, home, homePage, active]);
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -163,6 +171,21 @@ export default function Notifications({
       {!loaded && <ActivityIndicator color="#536d86" />}
       {!selection &&
         home &&
+        !!children?.pendingAcknowledgements &&
+        onOpenAcknowledgements && (
+          <Pressable
+            accessibilityRole="button"
+            style={{ minHeight: 48, padding: 12 }}
+            onPress={onOpenAcknowledgements}
+          >
+            <Text>
+              Ciências de urgências pendentes:{" "}
+              {children.pendingAcknowledgements}
+            </Text>
+          </Pressable>
+        )}
+      {!selection &&
+        home &&
         children?.children.map((child) => (
           <View style={s.card} key={child.id}>
             <Text style={s.child}>{child.name}</Text>
@@ -182,7 +205,7 @@ export default function Notifications({
                 )}
                 {child.current.deliveryUnderReview && (
                   <Text style={s.pending}>
-                    Recebimento sob verificação · relato de risco aberto
+                    Recebimento sob verificação · consulte a ocorrência
                   </Text>
                 )}
                 {child.current.openIssues > 0 && (
@@ -221,6 +244,28 @@ export default function Notifications({
       {!selection && home && children?.children.length === 0 && (
         <Text style={s.note}>Nenhum filho com vínculo operacional ativo.</Text>
       )}
+      {!selection &&
+        home &&
+        children &&
+        children.pendingJourneys?.total > 0 && (
+          <View style={s.card}>
+            <Text style={s.child}>
+              Pendências e revisões ({children.pendingJourneys.total})
+            </Text>
+            {children.pendingJourneys.items.map((item) => (
+              <View key={item.passengerId}>
+                {button(
+                  `${item.level === 3 ? "Crítico · " : ""}${item.studentName} · ${shortDate(item.date)} · ${item.direction === "OUTBOUND" ? "Ida" : "Volta"} · Abrir pendência`,
+                  () => setSelection({ kind: "child", id: item.passengerId }),
+                )}
+              </View>
+            ))}
+            {homePage > 0 &&
+              button("Pendências anteriores", () => setHomePage(homePage - 1))}
+            {children.pendingJourneys.hasMore &&
+              button("Próximas pendências", () => setHomePage(homePage + 1))}
+          </View>
+        )}
       {!selection && !home && (
         <>
           <View style={s.card}>

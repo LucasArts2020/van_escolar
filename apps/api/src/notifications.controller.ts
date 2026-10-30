@@ -26,8 +26,11 @@ export class NotificationsController {
       : undefined;
     return this.notifications.list(req, value);
   }
-  @Get("home") home(@Req() req: ActorRequest) {
-    return this.notifications.home(req);
+  @Get("home") home(@Req() req: ActorRequest, @Query("page") page?: string) {
+    return this.notifications.home(
+      req,
+      parse(z.coerce.number().int().min(0).max(10000).default(0), page),
+    );
   }
   @Get("children/:passengerId") journey(
     @Req() req: ActorRequest,

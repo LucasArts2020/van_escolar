@@ -10,9 +10,10 @@ import "./alerts.css";
 import "./history.css";
 import "./operation.css";
 import "./school-central.css";
+import "./design-system.css";
 export const metadata: Metadata = {
   title: "Caminho · Transporte escolar",
-  description: "Contas e permissões do transporte escolar.",
+  description: "Planejamento, viagens e confirmações do transporte escolar.",
 };
 export default function RootLayout({
   children,

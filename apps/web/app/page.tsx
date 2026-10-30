@@ -13,6 +13,7 @@ import TripsPanel from "./trips-panel";
 import HistoryPanel from "./history-panel";
 import OperationPanel from "./operation-panel";
 import SchoolCentral from "./school-central";
+import DriverDay from "./driver-day";
 import NotificationsPanel from "./notifications-panel";
 import AlertsPanel from "./alerts-panel";
 import {
@@ -114,6 +115,9 @@ async function request<T>(
 ): Promise<T> {
   const res = await fetch("/api/" + path, {
     ...options,
+    ...(path === "auth/me" && !options.signal
+      ? { signal: AbortSignal.timeout(12000) }
+      : {}),
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
@@ -225,7 +229,17 @@ export default function Home() {
       window.history.replaceState({}, "", window.location.pathname);
     }
     loadMe()
-      .catch(() => {})
+      .catch((failure) => {
+        if (
+          failure instanceof Error &&
+          (failure.name === "TimeoutError" ||
+            failure.name === "AbortError" ||
+            failure instanceof TypeError)
+        )
+          setError(
+            "Não foi possível verificar sua sessão. Confira a conexão e tente entrar novamente.",
+          );
+      })
       .finally(() => setBoot(false));
   }, []);
   useEffect(() => {
@@ -235,10 +249,17 @@ export default function Home() {
     setAlertId("");
     setNotificationId("");
     setModal(false);
-    setView(context?.role === "SCHOOL" ? "school-central" : "overview");
+    setView(
+      context?.role === "SCHOOL"
+        ? "school-central"
+        : context?.role === "DRIVER"
+          ? "driver-day"
+          : "overview",
+    );
   }, [context?.id]);
   useEffect(() => {
-    if (context?.role !== "SCHOOL") return;
+    if (!context || !["SCHOOL", "DRIVER", "GUARDIAN"].includes(context.role))
+      return;
     if (view !== "alerts" && view !== "notifications") return;
     setVisitedSchoolViews((previous) => ({
       contextId: context.id,
@@ -282,7 +303,11 @@ export default function Home() {
       setAlertId(target.alertId || "");
       setAlertVisit((v) => v + 1);
     }
-    setView(target.view);
+    setView(
+      target.view === "trips" && context.role === "DRIVER"
+        ? "driver-day"
+        : target.view,
+    );
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   function goBack() {
@@ -301,6 +326,8 @@ export default function Home() {
       ["overview", "trips", "planning"].includes(next)
     )
       next = "school-central";
+    if (context?.role === "DRIVER" && ["overview", "trips"].includes(next))
+      next = "driver-day";
     returns.current = [];
     setCanGoBack(false);
     setJourneyTarget(undefined);
@@ -456,8 +483,14 @@ export default function Home() {
   if (boot)
     return (
       <main className="splash">
-        <Brand />
-        <LoaderCircle className="spin" aria-label="Carregando" />
+        <div className="startup-brand">
+          <Brand />
+          <LoaderCircle className="spin" aria-label="Carregando" />
+        </div>
+        <p role="status">Abrindo seu espaço…</p>
+        <a className="startup-reload" href="/?reabrir=1">
+          Demorando? Recarregar o sistema
+        </a>
       </main>
     );
   // Links de convite/recuperação também podem ser usados com uma sessão aberta.
@@ -657,47 +690,71 @@ export default function Home() {
   const active = team.filter((m) => m.active);
   const firstName = me.user.name.split(" ")[0];
   const school = context?.role === "SCHOOL";
-  const nav = school
+  const driver = context?.role === "DRIVER";
+  const guardian = context?.role === "GUARDIAN";
+  const simplified = school || driver || guardian;
+  const operational = school || driver || guardian;
+  const nav = driver
     ? [
-        { id: "school-central", label: "Central", icon: GraduationCap },
-        { id: "registry", label: "Alunos e transportes", icon: Link2 },
+        { id: "driver-day", label: "Meu dia", icon: BusFront },
+        { id: "registry", label: "Alunos e frota", icon: Link2 },
         { id: "more", label: "Mais", icon: MoreHorizontal },
       ]
-    : [
-        { id: "overview", label: "Visão geral", icon: LayoutDashboard },
-        { id: "notifications", label: "Notificações", icon: Bell },
-        { id: "alerts", label: "Alertas e ocorrências", icon: ShieldAlert },
-        { id: "trips", label: "Viagens e passageiros", icon: BusFront },
-        { id: "history", label: "Histórico e correções", icon: ClipboardList },
-        {
-          id: "operation",
-          label: "Preparação para operação",
-          icon: ShieldCheck,
-        },
-        {
-          id: "planning",
-          label:
-            context?.role === "GUARDIAN"
-              ? "Rotina e confirmações"
-              : "Planejamento diário",
-          icon: ClipboardList,
-        },
-        {
-          id: "registry",
-          label:
-            context?.role === "GUARDIAN"
-              ? "Meus filhos"
-              : "Cadastros e vínculos",
-          icon: Link2,
-        },
-        { id: "profile", label: "Meu perfil", icon: UserRound },
-        ...(manager
-          ? [
-              { id: "team", label: "Equipe e permissões", icon: Users },
-              { id: "audit", label: "Registro de ações", icon: ClipboardList },
-            ]
-          : []),
-      ];
+    : school
+      ? [
+          { id: "school-central", label: "Central", icon: GraduationCap },
+          { id: "registry", label: "Alunos e transportes", icon: Link2 },
+          { id: "more", label: "Mais", icon: MoreHorizontal },
+        ]
+      : guardian
+        ? [
+            { id: "overview", label: "Meus filhos", icon: UserRound },
+            { id: "planning", label: "Agenda", icon: ClipboardList },
+            { id: "more", label: "Mais", icon: MoreHorizontal },
+          ]
+        : [
+            { id: "overview", label: "Visão geral", icon: LayoutDashboard },
+            { id: "notifications", label: "Notificações", icon: Bell },
+            { id: "alerts", label: "Alertas e ocorrências", icon: ShieldAlert },
+            { id: "trips", label: "Viagens e passageiros", icon: BusFront },
+            {
+              id: "history",
+              label: "Histórico e correções",
+              icon: ClipboardList,
+            },
+            {
+              id: "operation",
+              label: "Preparação para operação",
+              icon: ShieldCheck,
+            },
+            {
+              id: "planning",
+              label:
+                context?.role === "GUARDIAN"
+                  ? "Rotina e confirmações"
+                  : "Planejamento diário",
+              icon: ClipboardList,
+            },
+            {
+              id: "registry",
+              label:
+                context?.role === "GUARDIAN"
+                  ? "Meus filhos"
+                  : "Cadastros e vínculos",
+              icon: Link2,
+            },
+            { id: "profile", label: "Meu perfil", icon: UserRound },
+            ...(manager
+              ? [
+                  { id: "team", label: "Equipe e permissões", icon: Users },
+                  {
+                    id: "audit",
+                    label: "Registro de ações",
+                    icon: ClipboardList,
+                  },
+                ]
+              : []),
+          ];
   const secondaryLabels: Record<string, string> = {
     notifications: "Notificações",
     alerts: "Pendências e ocorrências",
@@ -708,9 +765,17 @@ export default function Home() {
     audit: "Auditoria administrativa",
   };
   const moreSelected =
-    school && !["school-central", "registry", "notifications"].includes(view);
+    simplified &&
+    !(
+      guardian
+        ? ["overview", "planning", "notifications"]
+        : ["school-central", "driver-day", "registry", "notifications"]
+    ).includes(view);
   return (
-    <div className={"app-shell" + (school ? " school-shell" : "")}>
+    <div className={"app-shell" + (simplified ? " school-shell" : "")}>
+      <a className="skip-link" href="#main-content">
+        Ir para o conteúdo
+      </a>
       <aside className="sidebar">
         <Brand />
         <div className="workspace-label">SEU ESPAÇO</div>
@@ -731,10 +796,15 @@ export default function Home() {
             </span>
           </div>
         </div>
-        <nav>
+        <nav aria-label="Navegação principal">
           {nav.map((n) => (
             <button
               key={n.id}
+              aria-current={
+                view === n.id || (n.id === "more" && moreSelected)
+                  ? "page"
+                  : undefined
+              }
               className={
                 view === n.id || (n.id === "more" && moreSelected)
                   ? "selected"
@@ -742,8 +812,8 @@ export default function Home() {
               }
               onClick={() => navigate(n.id)}
             >
-              <n.icon size={19} />
-              {n.label}
+              <n.icon size={20} aria-hidden="true" />
+              <span className="nav-label">{n.label}</span>
               {(view === n.id || (n.id === "more" && moreSelected)) && (
                 <span className="nav-dot" />
               )}
@@ -751,21 +821,9 @@ export default function Home() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {school ? (
-            <div className="school-test-note">
-              <span className="status-dot" /> Ambiente de teste
-            </div>
-          ) : (
-            <div className="build-note">
-              <span className="tiny-pill">EM CONSTRUÇÃO</span>
-              <strong>Um passo de cada vez.</strong>
-              <p>Você está testando a Parte 10 de 10 do sistema.</p>
-              <div className="progress-track">
-                <i style={{ width: "100%" }} />
-              </div>
-              <small>Integração e preparação para operação</small>
-            </div>
-          )}
+          <div className="school-test-note">
+            <span className="status-dot" /> Ambiente de teste
+          </div>
           <button className="logout" disabled={busy} onClick={logout}>
             <LogOut size={18} /> Sair da conta
           </button>
@@ -792,7 +850,7 @@ export default function Home() {
             </strong>
           </div>
           <div className="topbar-right">
-            {school && (
+            {me.contexts.length > 0 && (
               <select
                 className="header-context"
                 aria-label="Contexto atual"
@@ -820,17 +878,13 @@ export default function Home() {
             <span className="environment">
               <span className="status-dot" /> Ambiente de teste
             </span>
-            {school ? (
-              <button
-                className="topbar-avatar profile-shortcut"
-                aria-label="Abrir meu perfil"
-                onClick={() => navigate("profile")}
-              >
-                {firstName[0]}
-              </button>
-            ) : (
-              <span className="topbar-avatar">{firstName[0]}</span>
-            )}
+            <button
+              className="topbar-avatar profile-shortcut"
+              aria-label="Abrir meu perfil"
+              onClick={() => navigate("profile")}
+            >
+              {firstName[0]}
+            </button>
             <button
               className="mobile-signout"
               aria-label="Sair da conta"
@@ -842,77 +896,98 @@ export default function Home() {
           </div>
         </header>
         <main
+          id="main-content"
+          tabIndex={-1}
           className={
             "content" + (view === "school-central" ? " school-content" : "")
           }
         >
           <div className="page-heading">
             <div>
-              <div className="eyebrow green">CUIDADO QUE CONECTA</div>
               <h1>
-                {view === "school-central"
-                  ? "Central da escola."
-                  : view === "more"
-                    ? "Mais opções."
-                    : view === "operation"
-                      ? "Preparação para operação."
-                      : view === "overview"
-                        ? `Olá, ${firstName}.`
-                        : view === "notifications"
-                          ? "Cada atualização, mais cuidado."
-                          : view === "alerts"
-                            ? "Acompanhamento até ficar tudo esclarecido."
-                            : view === "history"
-                              ? "Cada registro mantém sua história."
-                              : view === "trips"
-                                ? "Cada criança, uma destinação."
-                                : view === "planning"
-                                  ? "Cada dia, um plano de cuidado."
-                                  : view === "registry"
-                                    ? context?.role === "GUARDIAN"
-                                      ? "Seus filhos."
-                                      : "Cadastros que conectam."
-                                    : view === "team"
-                                      ? "Pessoas que cuidam."
-                                      : view === "profile"
-                                        ? "Seu perfil."
-                                        : "Cada ação tem uma história."}
+                {view === "driver-day"
+                  ? "Meu dia"
+                  : view === "school-central"
+                    ? "Central da escola"
+                    : view === "more"
+                      ? "Mais opções"
+                      : view === "operation"
+                        ? "Regras e ajuda"
+                        : view === "overview"
+                          ? guardian
+                            ? "Meus filhos"
+                            : `Olá, ${firstName}.`
+                          : view === "notifications"
+                            ? "Notificações"
+                            : view === "alerts"
+                              ? "Pendências e ocorrências"
+                              : view === "history"
+                                ? "Histórico e correções"
+                                : view === "trips"
+                                  ? guardian
+                                    ? "Acompanhamento dos filhos"
+                                    : "Viagens e passageiros"
+                                  : view === "planning"
+                                    ? guardian
+                                      ? "Agenda"
+                                      : "Agenda e planejamento"
+                                    : view === "registry"
+                                      ? context?.role === "GUARDIAN"
+                                        ? "Meus filhos"
+                                        : context?.role === "DRIVER"
+                                          ? "Alunos e frota"
+                                          : "Alunos e transportes"
+                                      : view === "team"
+                                        ? "Equipe e permissões"
+                                        : view === "profile"
+                                          ? "Meu perfil"
+                                          : "Auditoria administrativa"}
               </h1>
               <p>
-                {view === "school-central"
-                  ? "Planejamento, recebimentos e saídas no mesmo lugar."
-                  : view === "more"
-                    ? "Histórico, equipe e orientações para quando precisar."
-                    : view === "operation"
-                      ? "Orientações por perfil e decisões necessárias antes do uso real."
-                      : view === "overview"
-                        ? "Alunos, organizações e famílias conectados por vínculos verificados."
-                        : view === "notifications"
-                          ? "Acompanhe os registros e confira quem ainda precisa confirmar."
-                          : view === "alerts"
-                            ? "Gravidade, atendimento e confirmações acompanhados separadamente."
-                            : view === "history"
-                              ? "Consulte os fatos, solicite correções e acompanhe as decisões autorizadas."
-                              : view === "trips"
-                                ? "Prepare as viagens e acompanhe os passageiros de cada trecho."
-                                : view === "planning"
-                                  ? "Rotina, previsões e confirmações de uso por trecho, com prazos claros."
-                                  : view === "registry"
-                                    ? "Cada cadastro e associação respeita seu contexto de acesso."
-                                    : view === "team"
-                                      ? "Gerencie quem pode atuar pela escola e o que cada pessoa pode fazer."
-                                      : view === "profile"
-                                        ? "Mantenha sua identificação atualizada. Seu acesso é pessoal."
-                                        : "Acompanhe as ações registradas no contexto desta escola."}
+                {view === "driver-day"
+                  ? "Viagens, confirmações e pendências no mesmo lugar."
+                  : view === "school-central"
+                    ? "Planejamento, recebimentos e saídas no mesmo lugar."
+                    : view === "more"
+                      ? "Histórico, equipe e orientações para quando precisar."
+                      : view === "operation"
+                        ? "Orientações por perfil e decisões necessárias antes do uso real."
+                        : view === "overview"
+                          ? guardian
+                            ? "Acompanhe seus filhos e consulte as confirmações do transporte."
+                            : "Alunos, organizações e famílias conectados por vínculos verificados."
+                          : view === "notifications"
+                            ? "Acompanhe os registros e confira quem ainda precisa confirmar."
+                            : view === "alerts"
+                              ? "Gravidade, atendimento e confirmações acompanhados separadamente."
+                              : view === "history"
+                                ? "Consulte os fatos, solicite correções e acompanhe as decisões autorizadas."
+                                : view === "trips"
+                                  ? guardian
+                                    ? "Acompanhe a ida, a volta e as confirmações dos seus filhos."
+                                    : "Prepare as viagens e acompanhe os passageiros de cada trecho."
+                                  : view === "planning"
+                                    ? "Rotina, previsões e confirmações de uso por trecho, com prazos claros."
+                                    : view === "registry"
+                                      ? "Cada cadastro e associação respeita seu contexto de acesso."
+                                      : view === "team"
+                                        ? "Gerencie quem pode atuar pela escola e o que cada pessoa pode fazer."
+                                        : view === "profile"
+                                          ? "Mantenha sua identificação atualizada. Seu acesso é pessoal."
+                                          : "Acompanhe as ações registradas no contexto desta escola."}
               </p>
             </div>
-            {!school && (
-              <span className="step-label">
-                ETAPA <b>10</b>
-                <span>/ 10</span>
-              </span>
-            )}
           </div>
+          {guardian && !["overview", "planning", "more"].includes(view) && (
+            <button
+              className="text-button school-return"
+              onClick={() => (canGoBack ? goBack() : navigate("overview"))}
+            >
+              {canGoBack
+                ? "← Voltar ao ponto anterior"
+                : "← Voltar aos meus filhos"}
+            </button>
+          )}
           {error && (
             <div className="message error" role="alert">
               {error}
@@ -929,28 +1004,47 @@ export default function Home() {
               contexto…
             </div>
           )}
-          {school && view !== "school-central" && (
-            <button
-              ref={detailBack}
-              className="text-button school-return"
-              onClick={
-                canGoBack
-                  ? goBack
-                  : () =>
-                      navigate(
-                        view === "more" || view === "registry"
-                          ? "school-central"
-                          : "more",
-                      )
-              }
-            >
-              ←{" "}
-              {canGoBack
-                ? "Voltar ao ponto anterior"
-                : view === "more" || view === "registry"
-                  ? "Voltar à Central"
-                  : "Voltar a Mais"}
-            </button>
+          {operational &&
+            !guardian &&
+            view !== (driver ? "driver-day" : "school-central") && (
+              <button
+                ref={detailBack}
+                className="text-button school-return"
+                onClick={
+                  canGoBack
+                    ? goBack
+                    : () =>
+                        navigate(
+                          view === "more" || view === "registry"
+                            ? driver
+                              ? "driver-day"
+                              : "school-central"
+                            : "more",
+                        )
+                }
+              >
+                ←{" "}
+                {canGoBack
+                  ? "Voltar ao ponto anterior"
+                  : view === "more" || view === "registry"
+                    ? driver
+                      ? "Voltar ao Meu dia"
+                      : "Voltar à Central"
+                    : "Voltar a Mais"}
+              </button>
+            )}
+          {context?.role === "DRIVER" && (
+            <div hidden={view !== "driver-day"}>
+              <DriverDay
+                key={context.id}
+                context={context}
+                active={view === "driver-day"}
+                target={
+                  journeyTarget?.view === "trips" ? journeyTarget : undefined
+                }
+                onOpenTarget={openTarget}
+              />
+            </div>
           )}
           {context?.role === "SCHOOL" && (
             <div hidden={view !== "school-central"}>
@@ -963,12 +1057,37 @@ export default function Home() {
               />
             </div>
           )}
-          {view === "more" && school && (
-            <section
-              className="school-more-grid"
-              aria-label="Mais opções da escola"
-            >
+          {view === "more" && simplified && (
+            <section className="school-more-grid" aria-label="Mais opções">
               {[
+                ...(guardian
+                  ? [
+                      {
+                        view: "trips",
+                        label: "Acompanhar meus filhos",
+                        description: "Viagens e confirmações dos seus filhos.",
+                        icon: BusFront,
+                      },
+                      {
+                        view: "registry",
+                        label: "Dados dos filhos e vínculos",
+                        description:
+                          "Cadastros, escola e transporte autorizados.",
+                        icon: UserRound,
+                      },
+                    ]
+                  : []),
+                ...(driver
+                  ? [
+                      {
+                        view: "planning",
+                        label: "Planejamento e solicitações",
+                        description:
+                          "Previsões de uso e alterações aguardando decisão.",
+                        icon: ClipboardList,
+                      },
+                    ]
+                  : []),
                 {
                   view: "alerts",
                   label: "Pendências e ocorrências",
@@ -1034,17 +1153,18 @@ export default function Home() {
           )}
           {context &&
             (view === "alerts" ||
-              (school &&
+              (operational &&
                 visitedSchoolViews.contextId === context.id &&
                 visitedSchoolViews.alerts)) && (
               <div hidden={view !== "alerts"}>
                 <AlertsPanel
-                  key={context.id + (school ? "" : alertId) + alertVisit}
+                  key={context.id + (operational ? "" : alertId) + alertVisit}
                   context={context}
                   initialId={alertId}
+                  initialAwaiting={journeyTarget?.awaitingAcknowledgement}
                   active={view === "alerts"}
-                  onSelect={school ? setAlertId : undefined}
-                  onOpenTarget={school ? openTarget : undefined}
+                  onSelect={operational ? setAlertId : undefined}
+                  onOpenTarget={operational ? openTarget : undefined}
                 />
               </div>
             )}
@@ -1053,25 +1173,25 @@ export default function Home() {
           )}
           {context &&
             (view === "notifications" ||
-              (school &&
+              (operational &&
                 visitedSchoolViews.contextId === context.id &&
                 visitedSchoolViews.notifications)) && (
               <div hidden={view !== "notifications"}>
                 <NotificationsPanel
                   key={
                     context.id +
-                    (school ? "" : notificationId) +
+                    (operational ? "" : notificationId) +
                     notificationVisit
                   }
                   context={context}
                   initialId={notificationId}
                   active={view === "notifications"}
-                  onSelect={school ? setNotificationId : undefined}
-                  onOpenTarget={school ? openTarget : undefined}
+                  onSelect={operational ? setNotificationId : undefined}
+                  onOpenTarget={operational ? openTarget : undefined}
                 />
               </div>
             )}
-          {view === "trips" && context && (
+          {view === "trips" && context && !driver && (
             <TripsPanel key={context.id} context={context} />
           )}
           {view === "history" && context && (
@@ -1082,7 +1202,7 @@ export default function Home() {
               initialTarget={
                 journeyTarget?.view === "history" ? journeyTarget : undefined
               }
-              onOpenTarget={school ? openTarget : undefined}
+              onOpenTarget={operational ? openTarget : undefined}
             />
           )}
           {view === "registry" && context && (
@@ -1096,29 +1216,53 @@ export default function Home() {
             <>
               {context?.role === "GUARDIAN" && (
                 <div className="guardian-updates">
-                  <NotificationsPanel key={context.id} context={context} home />
+                  <NotificationsPanel
+                    key={context.id}
+                    context={context}
+                    home
+                    onOpenTarget={openTarget}
+                  />
                 </div>
               )}
-              <section className="welcome-card">
+              <section
+                className={
+                  "welcome-card" +
+                  (context?.role === "GUARDIAN"
+                    ? " family-planning-callout"
+                    : "")
+                }
+              >
                 <div className="welcome-text">
                   <span className="pill white-pill">
                     <ShieldCheck size={14} /> ACESSO CONECTADO
                   </span>
                   <h2>
-                    Cada pessoa no seu lugar.
-                    <br />O cuidado em todos eles.
+                    {context?.role === "GUARDIAN" ? (
+                      "Organize os próximos dias"
+                    ) : (
+                      <>
+                        Cada pessoa no seu lugar.
+                        <br />O cuidado em todos eles.
+                      </>
+                    )}
                   </h2>
                   <p>
-                    Contas individuais, permissões claras e um registro
-                    <br className="desktop-br" /> de quem faz parte da sua
-                    operação.
+                    {context?.role === "GUARDIAN" ? (
+                      "Consulte a rotina e informe o uso do transporte na ida e na volta."
+                    ) : (
+                      <>
+                        Contas individuais, permissões claras e um registro
+                        <br className="desktop-br" /> de quem faz parte da sua
+                        operação.
+                      </>
+                    )}
                   </p>
                   <button
                     className="light-button"
                     onClick={() => setView("planning")}
                   >
                     {context?.role === "GUARDIAN"
-                      ? "Confirmar planejamento"
+                      ? "Abrir agenda"
                       : "Abrir planejamento"}
                     <ArrowUpRight size={17} />
                   </button>
@@ -1144,132 +1288,145 @@ export default function Home() {
                   </span>
                 </div>
               </section>
-              <div className="stats-grid">
-                <Stat
-                  icon={<UserRound />}
-                  value={labels[context?.role || "GUARDIAN"]}
-                  label="Seu perfil neste contexto"
-                  detail={
-                    context?.coordinator
-                      ? "Com permissão de coordenação"
-                      : "Identificação individual"
-                  }
-                />
-                <Stat
-                  icon={<Link2 />}
-                  value={String(me.contexts.length).padStart(2, "0")}
-                  label="Contextos autorizados"
-                  detail="Acesso validado pelo servidor"
-                />
-                <Stat
-                  icon={<Users />}
-                  value={
-                    manager
-                      ? loading
-                        ? "—"
-                        : String(active.length).padStart(2, "0")
-                      : "Individual"
-                  }
-                  label={manager ? "Pessoas na equipe" : "Sua conta"}
-                  detail={
-                    manager
-                      ? "Membros com vínculo ativo"
-                      : "Uma identidade por pessoa"
-                  }
-                />
-              </div>
-              <div className="lower-grid">
-                <section className="panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h3>Seu contexto de acesso</h3>
-                      <p>Você atua com as permissões deste vínculo.</p>
+              <details className="account-details">
+                <summary>
+                  <ShieldCheck size={19} aria-hidden="true" />
+                  <span>
+                    Conta e acesso<small>Perfil, vínculos e orientações</small>
+                  </span>
+                  <ChevronDown size={18} aria-hidden="true" />
+                </summary>
+                <div className="stats-grid">
+                  <Stat
+                    icon={<UserRound />}
+                    value={labels[context?.role || "GUARDIAN"]}
+                    label="Seu perfil neste contexto"
+                    detail={
+                      context?.coordinator
+                        ? "Com permissão de coordenação"
+                        : "Identificação individual"
+                    }
+                  />
+                  <Stat
+                    icon={<Link2 />}
+                    value={String(me.contexts.length).padStart(2, "0")}
+                    label="Contextos autorizados"
+                    detail="Acesso validado pelo servidor"
+                  />
+                  <Stat
+                    icon={<Users />}
+                    value={
+                      manager
+                        ? loading
+                          ? "—"
+                          : String(active.length).padStart(2, "0")
+                        : "Individual"
+                    }
+                    label={manager ? "Pessoas na equipe" : "Sua conta"}
+                    detail={
+                      manager
+                        ? "Membros com vínculo ativo"
+                        : "Uma identidade por pessoa"
+                    }
+                  />
+                </div>
+                <div className="lower-grid">
+                  <section className="panel">
+                    <div className="panel-heading">
+                      <div>
+                        <h3>Seu contexto de acesso</h3>
+                        <p>Você atua com as permissões deste vínculo.</p>
+                      </div>
+                      <ShieldCheck size={21} className="green-icon" />
                     </div>
-                    <ShieldCheck size={21} className="green-icon" />
-                  </div>
-                  <div className="context-summary">
-                    <span className="context-icon">
-                      <GraduationCap size={25} />
-                    </span>
-                    <div>
-                      <strong>
-                        {context?.organization_name ||
-                          "Nenhum contexto autorizado"}
-                      </strong>
-                      <span>
-                        {context
-                          ? labels[context.role]
-                          : "Aguarde um convite verificado"}
+                    <div className="context-summary">
+                      <span className="context-icon">
+                        <GraduationCap size={25} />
+                      </span>
+                      <div>
+                        <strong>
+                          {context?.organization_name ||
+                            "Nenhum contexto autorizado"}
+                        </strong>
+                        <span>
+                          {context
+                            ? labels[context.role]
+                            : "Aguarde um convite verificado"}
+                        </span>
+                      </div>
+                      <span className="active-badge">
+                        {context ? "Ativo" : "Pendente"}
                       </span>
                     </div>
-                    <span className="active-badge">
-                      {context ? "Ativo" : "Pendente"}
-                    </span>
-                  </div>
-                  <label className="context-select-label">
-                    Contexto atual
-                    <div className="select-wrap">
-                      <select
-                        aria-label="Contexto atual"
-                        value={context?.id || ""}
-                        onChange={(e) => {
-                          setContext(
-                            me.contexts.find((c) => c.id === e.target.value) ||
-                              null,
-                          );
-                          setView("overview");
-                        }}
-                      >
-                        {me.contexts.map((c) => (
-                          <option value={c.id} key={c.id}>
-                            {c.organization_name} · {labels[c.role]}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={16} />
-                    </div>
-                  </label>
-                  <p className="small-note">
-                    <ShieldCheck size={14} /> Cada contexto possui suas próprias
-                    permissões.
-                  </p>
-                </section>
-                <section className="panel next-panel">
-                  <span className="tiny-pill">PRÓXIMOS PASSOS</span>
-                  <h3>
-                    Uma base para
-                    <br />
-                    seguir com cuidado.
-                  </h3>
+                    <label className="context-select-label">
+                      Contexto atual
+                      <div className="select-wrap">
+                        <select
+                          aria-label="Contexto atual"
+                          value={context?.id || ""}
+                          onChange={(e) => {
+                            setContext(
+                              me.contexts.find(
+                                (c) => c.id === e.target.value,
+                              ) || null,
+                            );
+                            setView("overview");
+                          }}
+                        >
+                          {me.contexts.map((c) => (
+                            <option value={c.id} key={c.id}>
+                              {c.organization_name} · {labels[c.role]}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown size={16} />
+                      </div>
+                    </label>
+                    <p className="small-note">
+                      <ShieldCheck size={14} /> Cada contexto possui suas
+                      próprias permissões.
+                    </p>
+                  </section>
+                  {!guardian && (
+                    <section className="panel next-panel">
+                      <span className="tiny-pill">PRÓXIMOS PASSOS</span>
+                      <h3>
+                        Uma base para
+                        <br />
+                        seguir com cuidado.
+                      </h3>
+                      <p>
+                        Prepare viagens, revise as previsões e registre a
+                        destinação de cada criança. Acompanhe as confirmações, a
+                        linha do tempo e as atualizações na central de
+                        notificações. Alertas graduais e acompanhamento de
+                        ocorrências já estão disponíveis. A conclusão da viagem
+                        agora exige contabilização de cada criança e conferência
+                        física da van. Histórico, correções e contabilização
+                        excepcional já estão disponíveis.
+                      </p>
+                      <div className="next-step">
+                        <span>10</span>
+                        <div>
+                          <strong>Integração e preparação para operação</strong>
+                          <small>
+                            Disponível para seu teste · uso real não liberado
+                          </small>
+                        </div>
+                        <ArrowRight size={18} />
+                      </div>
+                    </section>
+                  )}
+                </div>
+                <div className="privacy-note">
+                  <ShieldCheck size={18} />
                   <p>
-                    Prepare viagens, revise as previsões e registre a destinação
-                    de cada criança. Acompanhe as confirmações, a linha do tempo
-                    e as atualizações na central de notificações. Alertas
-                    graduais e acompanhamento de ocorrências já estão
-                    disponíveis. A conclusão da viagem agora exige
-                    contabilização de cada criança e conferência física da van.
-                    Histórico, correções e contabilização excepcional já estão
-                    disponíveis.
+                    <strong>Acesso com responsabilidade.</strong> Cada pessoa
+                    visualiza apenas os contextos em que possui um vínculo
+                    ativo.
                   </p>
-                  <div className="next-step">
-                    <span>10</span>
-                    <div>
-                      <strong>Integração e preparação para operação</strong>
-                      <small>
-                        Disponível para seu teste · uso real não liberado
-                      </small>
-                    </div>
-                    <ArrowRight size={18} />
-                  </div>
-                </section>
-              </div>
-              <div className="privacy-note">
-                <ShieldCheck size={18} />
-                <p>
-                  <strong>Acesso com responsabilidade.</strong> Cada pessoa
-                  visualiza apenas os contextos em que possui um vínculo ativo.
-                </p>
-              </div>
+                </div>
+              </details>
             </>
           )}
           {view === "profile" && (
@@ -1471,10 +1628,7 @@ export default function Home() {
               <small>Mais cuidado em cada trajeto.</small>
             </span>
             <span>
-              <ShieldCheck size={14} />{" "}
-              {school
-                ? "Ambiente de teste"
-                : "Parte 10 · Integração e preparação"}
+              <ShieldCheck size={14} /> Ambiente de teste
             </span>
           </footer>
         </main>

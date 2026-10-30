@@ -1,3 +1,4 @@
+import { tripSummary } from "./trip-summary";
 import {
   BadRequestException,
   ConflictException,
@@ -117,7 +118,7 @@ export class TripsService {
   async available(req: ActorRequest, date: string, direction: string) {
     const plans = (
       await this.db.pool.query(
-        `SELECT p.id,p.status,p.scheduled,p.locked_at,l.id link_id,l.student_id,s.name student_name,sc.name school_name,l.school_id,
+        `SELECT p.id,p.status,p.scheduled,p.routine_revision,p.locked_at,l.id link_id,l.student_id,s.name student_name,sc.name school_name,l.school_id,
       a.trip_id,EXISTS(SELECT 1 FROM planning_changes c WHERE c.plan_id=p.id AND c.status='PENDING') pending_change
       FROM daily_plans p JOIN operating_links l ON l.id=p.operating_link_id JOIN students s ON s.id=l.student_id JOIN organizations sc ON sc.id=l.school_id
       LEFT JOIN trip_passengers a ON a.plan_id=p.id AND a.active WHERE ${accessSql} AND p.service_date=$4 AND p.direction=$5 ORDER BY s.name,l.id`,
@@ -168,7 +169,7 @@ export class TripsService {
       throw new NotFoundException("Viagem não disponível neste contexto.");
     const passengers = (
       await this.db.pool.query(
-        `SELECT p.*,l.status link_status FROM trip_passengers p JOIN trips t ON t.id=p.trip_id JOIN operating_links l ON l.id=p.operating_link_id WHERE p.trip_id=$4 AND ${passengerAccess} ORDER BY p.student_name,p.id`,
+        `SELECT p.*,l.status link_status,dp.routine_revision FROM trip_passengers p JOIN daily_plans dp ON dp.id=p.plan_id JOIN trips t ON t.id=p.trip_id JOIN operating_links l ON l.id=p.operating_link_id WHERE p.trip_id=$4 AND ${passengerAccess} ORDER BY p.student_name,p.id`,
         [...this.planning.params(req), id],
       )
     ).rows;
@@ -181,17 +182,14 @@ export class TripsService {
     // creation_hash contém apenas a chave técnica de idempotência; não faz parte da interface.
     const { creation_hash, ...trip } = t;
     const enriched = await this.movements.summaries(req, t, passengers);
+    const summary = await tripSummary(this.db.pool, req, t, enriched);
     return {
       ...trip,
       today: localDate(this.clock.now(), t.timezone),
       passengers: enriched,
       assignments,
       closure: {
-        ...(await finalReview(
-          this.db.pool,
-          id,
-          passengers.map((p) => p.id),
-        )),
+        ...summary.closure,
         canInspect:
           req.context!.role === "DRIVER" &&
           req.context!.id === t.driver_membership_id &&
@@ -206,48 +204,7 @@ export class TripsService {
           )
         ).rows,
       },
-      counts: {
-        total: passengers.length,
-        expected: passengers.filter((p) => p.disposition === "EXPECTED").length,
-        review: passengers.filter((p) => p.disposition === "REVIEW_REQUIRED")
-          .length,
-        notTransported: passengers.filter(
-          (p) => p.disposition === "NOT_TRANSPORTED",
-        ).length,
-        boardingInformed: enriched.filter(
-          (p) => p.movements[0].state === "INFORMED",
-        ).length,
-        boardingValidated: enriched.filter(
-          (p) => p.movements[0].state === "VALIDATED",
-        ).length,
-        pendingDelivery: enriched.filter(
-          (p) =>
-            (!p.exceptionalResolution &&
-              (p.boarding_informed_at || p.alighting_informed_at) &&
-              p.movements[1].state !== "VALIDATED") ||
-            p.deliveryUnderReview,
-        ).length,
-        delivered: enriched.filter(
-          (p) =>
-            !p.exceptionalResolution && p.movements[1].state === "VALIDATED",
-        ).length,
-        openIssues: enriched.reduce(
-          (sum, p) =>
-            sum +
-            p.issues.filter((i: { status: string }) => i.status !== "RESOLVED")
-              .length +
-            p.alerts.filter((a: any) => a.kind !== "SEQUENCE_INCOMPLETE")
-              .length,
-          0,
-        ),
-        unaccounted: enriched.filter(
-          (p) =>
-            (!p.exceptionalResolution &&
-              p.disposition !== "NOT_TRANSPORTED" &&
-              p.movements[1].state !== "VALIDATED") ||
-            p.deliveryUnderReview,
-        ).length,
-      },
+      counts: summary.counts,
     };
   }
   async insertPassenger(

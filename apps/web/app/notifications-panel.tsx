@@ -39,6 +39,7 @@ export default function NotificationsPanel({
   onSelect?: (id: string) => void;
   active?: boolean;
 }) {
+  const [homePage, setHomePage] = useState(0);
   const [inbox, setInbox] = useState<Inbox | null>(null),
     [children, setChildren] = useState<ChildrenHome | null>(null);
   const [selection, setSelection] = useState(
@@ -72,7 +73,7 @@ export default function NotificationsPanel({
     : "";
   useEffect(() => {
     setJourney(null);
-  }, [context.id, path, home]);
+  }, [context.id, path, home, homePage]);
   useEffect(() => {
     if (!active) return;
     let alive = true;
@@ -83,7 +84,7 @@ export default function NotificationsPanel({
         const result = path
           ? await api<Journey>(path)
           : home
-            ? await api<ChildrenHome>("notifications/home")
+            ? await api<ChildrenHome>("notifications/home?page=" + homePage)
             : await api<Inbox>("notifications");
         if (!alive) return;
         if (path) setJourney(result as Journey);
@@ -109,13 +110,16 @@ export default function NotificationsPanel({
       alive = false;
       clearInterval(timer);
     };
-  }, [context.id, path, home, active]);
+  }, [context.id, path, home, active, homePage]);
   async function refresh() {
     setBusy(true);
     setError("");
     try {
       if (path) setJourney(await api<Journey>(path));
-      else if (home) setChildren(await api<ChildrenHome>("notifications/home"));
+      else if (home)
+        setChildren(
+          await api<ChildrenHome>("notifications/home?page=" + homePage),
+        );
       else setInbox(await api<Inbox>("notifications"));
     } catch (e) {
       setError((e as Error).message);
@@ -199,6 +203,24 @@ export default function NotificationsPanel({
           Carregando atualizações…
         </p>
       )}
+      {!selection &&
+        home &&
+        !!children?.pendingAcknowledgements &&
+        onOpenTarget && (
+          <button
+            className="planning-secondary"
+            onClick={() =>
+              onOpenTarget({
+                view: "alerts",
+                contextId: context.id,
+                date: "",
+                awaitingAcknowledgement: true,
+              })
+            }
+          >
+            Ciências de urgências pendentes: {children.pendingAcknowledgements}
+          </button>
+        )}
       {!selection && home && children && (
         <div className="child-status-grid">
           {children.children.map((child) => (
@@ -225,7 +247,7 @@ export default function NotificationsPanel({
                   )}
                   {child.current.deliveryUnderReview && (
                     <p className="pending-label">
-                      Recebimento sob verificação · relato de risco aberto
+                      Recebimento sob verificação · consulte a ocorrência
                     </p>
                   )}
                   {child.current.openIssues > 0 && (
@@ -274,6 +296,47 @@ export default function NotificationsPanel({
           )}
         </div>
       )}
+      {!selection &&
+        home &&
+        children &&
+        children.pendingJourneys?.total > 0 && (
+          <section
+            className="panel"
+            aria-label="Pendências dos filhos em todas as datas"
+          >
+            <h3>Pendências e revisões ({children.pendingJourneys.total})</h3>
+            {children.pendingJourneys.items.map((item) => (
+              <button
+                key={item.passengerId}
+                className="planning-secondary"
+                onClick={() =>
+                  setSelection({ kind: "child", id: item.passengerId })
+                }
+              >
+                {item.level === 3 ? "Crítico · " : ""}
+                {item.studentName} · {shortDate(item.date)} ·{" "}
+                {item.direction === "OUTBOUND" ? "Ida" : "Volta"} · Abrir
+                pendência
+              </button>
+            ))}
+            {homePage > 0 && (
+              <button
+                className="text-button"
+                onClick={() => setHomePage(homePage - 1)}
+              >
+                Anteriores
+              </button>
+            )}
+            {children.pendingJourneys.hasMore && (
+              <button
+                className="text-button"
+                onClick={() => setHomePage(homePage + 1)}
+              >
+                Próximas pendências
+              </button>
+            )}
+          </section>
+        )}
       {!selection && !home && inbox && (
         <div className="notification-list">
           {inbox.items.map((n) => (

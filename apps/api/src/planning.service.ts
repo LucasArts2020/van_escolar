@@ -175,84 +175,120 @@ export class PlanningService {
     input: { use: boolean; expectedVersion: number; reason?: string },
   ) {
     this.assertGuardian(req);
+    return this.db.transaction((db) => this.respondLocked(req, id, input, db));
+  }
+  async respondDay(
+    req: ActorRequest,
+    choices: { id: string; use: boolean; expectedVersion: number }[],
+    reason?: string,
+  ) {
+    this.assertGuardian(req);
     return this.db.transaction(async (db) => {
-      const { plan: p } = await this.plan(req, id, db, true);
-      this.assertMutable(p);
-      const today = localDate(this.clock.now(), p.timezone);
-      if (p.service_date < today)
-        throw new ConflictException(
-          "Planejamento passado é somente para consulta.",
-        );
-      if (p.service_date > addDays(today, 1))
-        throw new BadRequestException(
-          "Confirme o uso no dia anterior à data planejada.",
-        );
-      const pending = (
+      const member = (
         await db.query(
-          "SELECT * FROM planning_changes WHERE plan_id=$1 AND status='PENDING'",
-          [id],
+          "SELECT id FROM memberships WHERE id=$1 AND user_id=$2 AND role='GUARDIAN' AND active FOR UPDATE",
+          [req.context!.id, req.actor.id],
         )
       ).rows[0];
-      if (pending) {
-        if (
-          pending.requested_by === req.actor.id &&
-          pending.requested_usage === input.use
-        )
-          return { id, requestId: pending.id, unchanged: true };
-        throw new ConflictException(
-          "Já existe alteração em análise. Aguarde a decisão ou retire o pedido.",
+      if (!member) throw new ForbiddenException("Vínculo familiar revogado.");
+      const ordered = [...choices].sort((a, b) => a.id.localeCompare(b.id));
+      const plans = [];
+      // Validate the group before acquiring link locks: never combine children or dates.
+      for (const c of ordered)
+        plans.push((await this.plan(req, c.id, db)).plan);
+      if (
+        new Set(plans.map((p) => p.operating_link_id + "|" + p.service_date))
+          .size !== 1 ||
+        new Set(plans.map((p) => p.direction)).size !== plans.length
+      )
+        throw new BadRequestException(
+          "Confirme somente ida e volta da mesma criança, transporte e data.",
         );
-      }
-      const desired = input.use ? "CONFIRMED" : "NOT_USING";
-      if (p.version !== input.expectedVersion) {
-        if (p.status === desired && p.changed_by === req.actor.id)
-          return { id, unchanged: true };
-        throw new ConflictException(
-          "O planejamento mudou. Atualize antes de confirmar.",
-        );
-      }
-      if (p.status === desired) return { id, unchanged: true };
-      if (this.clock.now().getTime() >= new Date(p.deadline_at).getTime()) {
-        if (!input.reason || input.reason.trim().length < 10)
-          throw new BadRequestException(
-            "Após o limite, descreva o motivo da alteração em pelo menos 10 caracteres.",
-          );
-        const requestId = randomUUID();
-        await db.query(
-          "INSERT INTO planning_changes(id,plan_id,requested_usage,previous_status,reason,status,requested_by) VALUES($1,$2,$3,$4,$5,'PENDING',$6)",
-          [
-            requestId,
-            id,
-            input.use,
-            p.status,
-            input.reason.trim(),
-            req.actor.id,
-          ],
-        );
-        await db.query(
-          "UPDATE daily_plans SET version=version+1,changed_at=now() WHERE id=$1",
-          [id],
-        );
-        await audit(
-          db,
-          req.actor.id,
-          "PLANNING_CHANGE_REQUESTED",
-          requestId,
-          req.context,
-          { planId: id, use: input.use, reason: input.reason },
-        );
-        return { id, requestId, awaitingAcceptance: true };
-      }
-      await db.query(
-        "UPDATE daily_plans SET status=$1,version=version+1,changed_by=$2,changed_at=now() WHERE id=$3",
-        [desired, req.actor.id, id],
-      );
-      await audit(db, req.actor.id, "DAILY_PLAN_RESPONDED", id, req.context, {
-        previousStatus: p.status,
-        status: desired,
-        use: input.use,
-      });
-      return { id, awaitingAcceptance: false };
+      const results = [];
+      for (const c of ordered)
+        results.push(await this.respondLocked(req, c.id, { ...c, reason }, db));
+      return {
+        results,
+        awaitingAcceptance: results.some((r) => "requestId" in r),
+        unchanged: results.every((r) => "unchanged" in r && r.unchanged),
+      };
     });
+  }
+  private async respondLocked(
+    req: ActorRequest,
+    id: string,
+    input: { use: boolean; expectedVersion: number; reason?: string },
+    db: Queryable,
+  ) {
+    const { plan: p } = await this.plan(req, id, db, true);
+    this.assertMutable(p);
+    const today = localDate(this.clock.now(), p.timezone);
+    if (p.service_date < today)
+      throw new ConflictException(
+        "Planejamento passado é somente para consulta.",
+      );
+    if (p.service_date > addDays(today, 1))
+      throw new BadRequestException(
+        "Confirme o uso no dia anterior à data planejada.",
+      );
+    const pending = (
+      await db.query(
+        "SELECT * FROM planning_changes WHERE plan_id=$1 AND status='PENDING'",
+        [id],
+      )
+    ).rows[0];
+    if (pending) {
+      if (
+        pending.requested_by === req.actor.id &&
+        pending.requested_usage === input.use
+      )
+        return { id, requestId: pending.id, unchanged: true };
+      throw new ConflictException(
+        "Já existe alteração em análise. Aguarde a decisão ou retire o pedido.",
+      );
+    }
+    const desired = input.use ? "CONFIRMED" : "NOT_USING";
+    if (p.version !== input.expectedVersion) {
+      if (p.status === desired && p.changed_by === req.actor.id)
+        return { id, unchanged: true };
+      throw new ConflictException(
+        "O planejamento mudou. Atualize antes de confirmar.",
+      );
+    }
+    if (p.status === desired) return { id, unchanged: true };
+    if (this.clock.now().getTime() >= new Date(p.deadline_at).getTime()) {
+      if (!input.reason || input.reason.trim().length < 10)
+        throw new BadRequestException(
+          "Após o limite, descreva o motivo da alteração em pelo menos 10 caracteres.",
+        );
+      const requestId = randomUUID();
+      await db.query(
+        "INSERT INTO planning_changes(id,plan_id,requested_usage,previous_status,reason,status,requested_by) VALUES($1,$2,$3,$4,$5,'PENDING',$6)",
+        [requestId, id, input.use, p.status, input.reason.trim(), req.actor.id],
+      );
+      await db.query(
+        "UPDATE daily_plans SET version=version+1,changed_at=now() WHERE id=$1",
+        [id],
+      );
+      await audit(
+        db,
+        req.actor.id,
+        "PLANNING_CHANGE_REQUESTED",
+        requestId,
+        req.context,
+        { planId: id, use: input.use, reason: input.reason },
+      );
+      return { id, requestId, awaitingAcceptance: true };
+    }
+    await db.query(
+      "UPDATE daily_plans SET status=$1,version=version+1,changed_by=$2,changed_at=now() WHERE id=$3",
+      [desired, req.actor.id, id],
+    );
+    await audit(db, req.actor.id, "DAILY_PLAN_RESPONDED", id, req.context, {
+      previousStatus: p.status,
+      status: desired,
+      use: input.use,
+    });
+    return { id, awaitingAcceptance: false };
   }
 }

@@ -14,6 +14,7 @@ import { PlanningClock, localDate } from "./planning-clock";
 import { recordNotificationEvent } from "./notification-events";
 import { syncPassengerAlerts } from "./alerts-domain";
 import { currentException, invalidateAccounting } from "./history-domain";
+import { tripSummary } from "./trip-summary";
 type Tx = Pick<PoolClient, "query">;
 export type MovementKind = "BOARDING" | "ALIGHTING";
 export function counterpart(direction: string, kind: MovementKind) {
@@ -502,7 +503,13 @@ export class MovementsService {
         state: current.length === 2 ? "VALIDATED" : "INFORMED",
         assignmentId: assignment.id,
       });
-      await syncPassengerAlerts(db, passengerId, now);
+      await syncPassengerAlerts(db, passengerId, now, {
+        id,
+        actor_id: req.actor.id,
+        actor_name: req.actor.name,
+        role,
+        membership_id: req.context!.id,
+      });
       return this.confirmationResponse(
         req,
         t,
@@ -531,9 +538,23 @@ export class MovementsService {
       )
     ).rows[0];
     const currentTrip = (
-      await db.query("SELECT version FROM trips WHERE id=$1", [t.id])
+      await db.query(
+        "SELECT *,service_date::text service_date FROM trips WHERE id=$1",
+        [t.id],
+      )
     ).rows[0];
-    const [passenger] = await this.summaries(req, t, [p], db);
+    const visible = (
+      await db.query(
+        `SELECT p.*,l.status link_status,dp.routine_revision FROM trip_passengers p JOIN daily_plans dp ON dp.id=p.plan_id
+      JOIN operating_links l ON l.id=p.operating_link_id WHERE p.trip_id=$1 AND
+      ($2='DRIVER' OR (l.status='ACTIVE' AND (($2='SCHOOL' AND p.school_id=$3) OR
+      ($2='GUARDIAN' AND EXISTS(SELECT 1 FROM guardian_links g WHERE g.student_id=p.student_id AND g.user_id=$4 AND g.status='ACTIVE')))))
+      ORDER BY p.student_name,p.id`,
+        [t.id, req.context!.role, req.context!.organization_id, req.actor.id],
+      )
+    ).rows;
+    const passengers = await this.summaries(req, currentTrip, visible, db);
+    const passenger = passengers.find((item) => item.id === p.id)!;
     return {
       id: movementId,
       state: passenger.movements.find((m: { kind: string }) => m.kind === kind)!
@@ -541,6 +562,7 @@ export class MovementsService {
       unchanged,
       passenger,
       tripVersion: currentTrip.version,
+      tripSummary: await tripSummary(db, req, currentTrip, passengers),
     };
   }
 }

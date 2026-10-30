@@ -570,3 +570,115 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.guardian-day-card {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  border-top: 3px solid var(--green);
+}
+.guardian-day-card h3 {
+  font-size: 21px;
+  margin: 7px 0;
+}
+.guardian-day-card header p,
+.guardian-day-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.guardian-current {
+  background: var(--subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.guardian-current span {
+  color: #80571d;
+}
+.guardian-day-options {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.guardian-day-options legend {
+  font-size: 14px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.guardian-day-options button {
+  min-height: 48px;
+  border: 1px solid #b8ccbf;
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 600;
+  padding: 10px;
+}
+.guardian-day-options button[aria-pressed="true"] {
+  background: var(--mint);
+  border: 2px solid var(--green);
+  color: var(--deep);
+}
+.guardian-day-card textarea {
+  width: 100%;
+  min-height: 85px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  margin-top: 8px;
+}
+.guardian-day-primary {
+  position: sticky;
+  bottom: 16px;
+  z-index: 2;
+  background: #fff;
+  padding: 8px 0;
+}
+.guardian-day-primary .button {
+  width: 100%;
+  min-height: 52px;
+  font-size: 14px;
+}
+.guardian-day-card summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+.guardian-day-card details > div {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .guardian-day-primary {
+    bottom: 88px;
+  }
+  .guardian-day-card {
+    padding: 18px;
+  }
+}
+
+/* Keep the primary action near the active card, without floating actions from
+   unrelated children into the viewport. */
+.guardian-day-primary {
+  position: relative;
+  bottom: auto;
+}
+.guardian-day-card:focus-within .guardian-day-primary {
+  position: sticky;
+  bottom: 16px;
+}
+@media (max-width: 760px) {
+  .guardian-day-card:focus-within .guardian-day-primary {
+    bottom: 88px;
+  }
+}

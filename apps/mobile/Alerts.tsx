@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -17,6 +17,7 @@ import {
   alertStatuses,
   alertRoutes,
   alertEventLabels,
+  resolutionKinds,
 } from "../shared/alerts";
 import { movementRoleLabels } from "../shared/trips";
 import { PushClient } from "./push";
@@ -31,6 +32,7 @@ export default function Alerts({
   context,
   client,
   initialId = "",
+  initialAwaiting = false,
   onOpenTarget,
   onSelect,
   active = true,
@@ -38,6 +40,7 @@ export default function Alerts({
   context: Context;
   client: PushClient;
   initialId?: string;
+  initialAwaiting?: boolean;
   onOpenTarget?: (target: JourneyTarget) => void;
   onSelect?: (id: string) => void;
   active?: boolean;
@@ -55,7 +58,36 @@ export default function Alerts({
     [note, setNote] = useState(""),
     [action, setAction] = useState("CONTACT"),
     [minutes, setMinutes] = useState(["5", "10", "15"]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [awaiting, setAwaiting] = useState(initialAwaiting),
+    [pendingCount, setPendingCount] = useState(0);
+  const sending = useRef(false),
+    uncertain = useRef(false),
+    visit = useRef(0),
+    readSequence = useRef(0);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  const listPath =
+    "alerts?closed=" + closed + "&awaitingAcknowledgement=" + awaiting;
+  const effectiveNote = drafts[action] || "";
+  useEffect(() => {
+    setAwaiting(initialAwaiting);
+    setClosed(initialAwaiting);
+  }, [initialAwaiting]);
+  useEffect(() => {
+    setSelected(initialId);
+  }, [initialId]);
+  useEffect(
+    () => () => {
+      visit.current++;
+      readSequence.current++;
+    },
+    [context.id],
+  );
   function select(id: string) {
+    if (sending.current) return;
+    visit.current++;
     setSelected(id);
     onSelect?.(id);
   }
@@ -63,49 +95,65 @@ export default function Alerts({
     setSelected(initialId);
   }, [initialId]);
   async function refresh() {
-    if (selected) setDetail(await client<AlertDetail>("alerts/" + selected));
-    else {
+    const seq = ++readSequence.current;
+    const id = selected;
+    if (selected) {
+      const value = await client<AlertDetail>("alerts/" + selected);
+      if (seq === readSequence.current && selectedRef.current === id)
+        setDetail(value);
+    } else {
       const [list, opts] = await Promise.all([
-        client<{ items: AlertItem[] }>("alerts?closed=" + closed),
+        client<{ items: AlertItem[]; pendingCount: number }>(listPath),
         client<AlertOptions>("alerts/options"),
       ]);
-      setItems(list.items);
-      setOptions(opts);
+      if (seq === readSequence.current) {
+        setItems(list.items);
+        setPendingCount(list.pendingCount);
+        setOptions(opts);
+      }
     }
   }
   useEffect(() => {
     setDetail(null);
     setItems([]);
     setNote("");
-  }, [selected, closed, context.id]);
+    setDrafts({});
+    uncertain.current = false;
+    visit.current++;
+    readSequence.current++;
+  }, [selected, closed, awaiting, context.id]);
   useEffect(() => {
     if (!active) return;
     let alive = true;
     setLoading(true);
     const load = async () => {
+      if (sending.current) return;
+      const seq = ++readSequence.current;
       try {
         if (selected) {
           const data = await client<AlertDetail>("alerts/" + selected);
-          if (alive) setDetail(data);
+          if (alive && seq === readSequence.current) setDetail(data);
         } else {
           const [list, opts] = await Promise.all([
-            client<{ items: AlertItem[] }>("alerts?closed=" + closed),
+            client<{ items: AlertItem[]; pendingCount: number }>(listPath),
             client<AlertOptions>("alerts/options"),
           ]);
-          if (alive) {
+          if (alive && seq === readSequence.current) {
             setItems(list.items);
+            setPendingCount(list.pendingCount);
             setOptions(opts);
           }
         }
-        if (alive) setError("");
+        if (alive && seq === readSequence.current) setError("");
       } catch (e) {
-        if (alive) {
+        if (alive && seq === readSequence.current) {
           setError((e as Error).message);
           setDetail(null);
           setItems([]);
+          setDrafts({});
         }
       } finally {
-        if (alive) setLoading(false);
+        if (alive && seq === readSequence.current) setLoading(false);
       }
     };
     void load();
@@ -120,7 +168,7 @@ export default function Alerts({
       clearInterval(timer);
       sub.remove();
     };
-  }, [selected, closed, context.id, active]);
+  }, [selected, closed, awaiting, context.id, active]);
   useEffect(() => {
     if (options?.policy)
       setMinutes(
@@ -131,17 +179,45 @@ export default function Alerts({
         ].map(String),
       );
   }, [options?.policy?.revision]);
-  async function run(fn: () => Promise<void>, text: string) {
+  async function run(fn: () => Promise<unknown>, text: string) {
+    if (sending.current) return;
+    sending.current = true;
+    readSequence.current++;
+    const actionVisit = visit.current;
     setBusy(true);
     setError("");
     setNotice("");
     try {
+      if (uncertain.current) {
+        await refresh();
+        uncertain.current = false;
+        setNotice(
+          "Estado consultado. Confira os dados antes de tentar novamente.",
+        );
+        return;
+      }
       await fn();
       await refresh();
+      if (actionVisit !== visit.current) return;
       setNotice(text);
     } catch (e) {
+      if (actionVisit !== visit.current) return;
       setError((e as Error).message);
+      uncertain.current = true;
+      try {
+        await refresh();
+        uncertain.current = false;
+        if (e instanceof TypeError)
+          setError(
+            "A resposta do envio foi interrompida. O estado exibido foi consultado no servidor.",
+          );
+      } catch {
+        setError(
+          "Não foi possível consultar o estado. A próxima tentativa apenas verificará o servidor.",
+        );
+      }
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }
@@ -160,7 +236,7 @@ export default function Alerts({
       <Text style={s.buttonText}>{label}</Text>
     </Pressable>
   );
-  function record(type: string, text = note) {
+  function record(type: string, text = drafts[type] || "") {
     if (!a) return;
     void run(async () => {
       await client(`alerts/${a.id}/actions`, {
@@ -168,7 +244,7 @@ export default function Alerts({
         type,
         note: text,
       });
-      setNote("");
+      setDrafts((old) => ({ ...old, [type]: "" }));
     }, "Acompanhamento registrado. Ler ou assumir não comprova entrega.");
   }
   return (
@@ -200,8 +276,18 @@ export default function Alerts({
       ) : (
         <>
           <View style={s.row}>
-            {button("Em acompanhamento", () => setClosed(false))}
-            {button("Resolvidas", () => setClosed(true))}
+            {button("Em acompanhamento", () => {
+              setClosed(false);
+              setAwaiting(false);
+            })}
+            {button("Resolvidas", () => {
+              setClosed(true);
+              setAwaiting(false);
+            })}
+            {button(`Aguardando minha ciência (${pendingCount})`, () => {
+              setClosed(true);
+              setAwaiting(true);
+            })}
           </View>
           {options?.canConfigure && (
             <View style={s.card}>
@@ -340,7 +426,7 @@ export default function Alerts({
               </Text>
             )}
             {a.actions.canAssume &&
-              button("Assumir acompanhamento", () =>
+              button("Assumir atendimento", () =>
                 record(
                   "ASSUMED",
                   "Assumo o acompanhamento desta ocorrência e verificarei a situação com as partes envolvidas.",
@@ -408,24 +494,119 @@ export default function Alerts({
                 editable={!busy}
                 multiline
                 maxLength={2000}
-                value={note}
-                onChangeText={setNote}
+                value={effectiveNote}
+                onChangeText={(value) =>
+                  setDrafts((old) => ({ ...old, [action]: value }))
+                }
                 placeholder="Descreva fatos, pessoas contatadas e resultado (mínimo 20 caracteres)"
               />
               {button(
-                "Registrar acompanhamento",
+                action === "CONTACT"
+                  ? "Registrar contato"
+                  : "Registrar verificação",
                 () => record(action),
-                busy || note.trim().length < 20,
+                busy || effectiveNote.trim().length < 20,
               )}
               <Text style={s.small}>{a.actions.resolutionExplanation}</Text>
-              {a.actions.canResolve &&
-                button(
-                  "Encerrar atendimento verificado",
-                  () => record("RESOLVED"),
-                  busy || note.trim().length < 20,
-                )}
             </View>
           )}
+          <View style={s.card}>
+            <Text style={s.subtitle}>
+              {a.status === "RESOLVED"
+                ? "Urgência resolvida"
+                : "Resolver urgência"}
+            </Text>
+            {a.status !== "RESOLVED" ? (
+              <>
+                <Text style={s.note}>{a.actions.resolutionExplanation}</Text>
+                {a.actions.resolutionMode === "VERIFIED_FOLLOW_UP" && (
+                  <>
+                    {a.actions.requirements?.map((r) => (
+                      <Text key={r.id} style={s.note}>
+                        {r.met ? "✓" : "○"} {r.label}
+                      </Text>
+                    ))}
+                    <TextInput
+                      style={s.input}
+                      accessibilityLabel="Justificativa da resolução"
+                      multiline
+                      maxLength={2000}
+                      editable={!busy}
+                      value={drafts.RESOLVED || ""}
+                      onChangeText={(value) =>
+                        setDrafts((old) => ({ ...old, RESOLVED: value }))
+                      }
+                      placeholder="Justificativa da resolução (mínimo 20 caracteres)"
+                    />
+                    {button(
+                      "Resolver urgência",
+                      () => record("RESOLVED"),
+                      busy ||
+                        !a.actions.canResolve ||
+                        (drafts.RESOLVED || "").trim().length < 20,
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={s.note}>
+                  {a.resolution?.actor_name || "Registro histórico"} ·{" "}
+                  {time(
+                    a.resolution?.occurred_at || a.resolved_at || a.origin_at,
+                  )}
+                </Text>
+                <Text style={s.note}>
+                  {resolutionKinds[
+                    (a as AlertItem & { resolution_kind?: string })
+                      .resolution_kind || ""
+                  ] || "Consulte o histórico."}
+                </Text>
+                <Text style={s.note}>{a.resolution_note}</Text>
+                {a.receipt ? (
+                  <>
+                    <Text style={s.subtitle}>
+                      Ciências pendentes: {a.receipt.pendingCount}
+                    </Text>
+                    <Text style={s.note}>Ciência não altera a viagem.</Text>
+                    {a.receipt.recipients.map((r, i) => (
+                      <Text key={i} style={s.note}>
+                        {r.name}
+                        {r.isMe ? " (você)" : ""} ·{" "}
+                        {r.acknowledgedAt
+                          ? "Ciente em " + time(r.acknowledgedAt)
+                          : r.revokedAt
+                            ? "Dispensada por perda de acesso"
+                            : "Aguardando ciência"}
+                      </Text>
+                    ))}
+                    {a.receipt.missingRoles.map((role) => (
+                      <Text key={role} style={s.note}>
+                        Sem destinatário ativo:{" "}
+                        {movementRoleLabels[role] || role}
+                      </Text>
+                    ))}
+                    {a.receipt.canAcknowledge &&
+                      button(
+                        "Confirmar ciência da resolução",
+                        () =>
+                          void run(async () => {
+                            await client(
+                              `alerts/${a.id}/resolution-acknowledgements`,
+                              { resolutionEventId: a.receipt!.eventId },
+                            );
+                          }, "Ciência da resolução registrada."),
+                        busy,
+                      )}
+                  </>
+                ) : (
+                  <Text style={s.note}>
+                    Esta resolução não possui solicitação de ciência.
+                  </Text>
+                )}
+              </>
+            )}
+          </View>
           <View style={s.card}>
             <Text style={s.subtitle}>Histórico do atendimento</Text>
             {detail.history.map((e) => (
@@ -467,6 +648,7 @@ const s = StyleSheet.create({
   label: { fontSize: 13, fontWeight: "600", color: "#496178", marginBottom: 7 },
   subtitle: { fontSize: 17, fontWeight: "700", color: "#40586f" },
   button: {
+    minHeight: 48,
     padding: 13,
     backgroundColor: "#e8eff5",
     borderWidth: 1,

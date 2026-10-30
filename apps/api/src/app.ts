@@ -27,6 +27,7 @@ import { HistoryController } from "./history.controller";
 import { HistoryService } from "./history.service";
 import { SchoolDayController } from "./school-day.controller";
 import { SchoolDayService } from "./school-day.service";
+import { DriverDayController } from "./driver-day.controller";
 import {
   OperationsController,
   OperationsGuard,
@@ -51,6 +52,7 @@ import {
     HistoryController,
     OperationsController,
     SchoolDayController,
+    DriverDayController,
   ],
   providers: [
     Database,

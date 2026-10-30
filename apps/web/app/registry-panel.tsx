@@ -15,6 +15,7 @@ type Context = {
   id: string;
   organization_id: string;
   organization_name: string;
+  manage_team?: boolean;
   role: "SCHOOL" | "DRIVER" | "GUARDIAN";
 };
 type Student = {
@@ -816,6 +817,8 @@ export default function RegistryPanel({
                   className="registry-form"
                   onSubmit={(e) => {
                     e.preventDefault();
+                    if (context.role === "SCHOOL" && !context.manage_team)
+                      return;
                     void run(async () => {
                       await api("organization", { name: rename }, "PATCH");
                       await onContextsChanged();
@@ -829,6 +832,9 @@ export default function RegistryPanel({
                       ? "escola"
                       : "operação de transporte"}
                     <input
+                      readOnly={
+                        context.role === "SCHOOL" && !context.manage_team
+                      }
                       value={rename}
                       onChange={(e) => setRename(e.target.value)}
                       required
@@ -836,9 +842,11 @@ export default function RegistryPanel({
                       maxLength={120}
                     />
                   </label>
-                  <button className="button" disabled={busy}>
-                    Salvar organização
-                  </button>
+                  {(context.role !== "SCHOOL" || context.manage_team) && (
+                    <button className="button" disabled={busy}>
+                      Salvar organização
+                    </button>
+                  )}
                 </form>
                 <details className="registry-more">
                   <summary>
@@ -860,7 +868,7 @@ export default function RegistryPanel({
                         await load();
                         await onContextsChanged();
                         setNotice(
-                          "Organização cadastrada. Escolha o novo contexto na Visão geral.",
+                          "Organização cadastrada. Escolha o novo contexto no cabeçalho.",
                         );
                       });
                     }}

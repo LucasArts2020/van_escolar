@@ -24,8 +24,12 @@ const version = z.number().int().min(1),
 @Throttle({ default: { limit: 120, ttl: 60000 } })
 export class AlertsController {
   constructor(@Inject(AlertsService) private alerts: AlertsService) {}
-  @Get() list(@Req() req: ActorRequest, @Query("closed") closed?: string) {
-    return this.alerts.list(req, closed === "true");
+  @Get() list(
+    @Req() req: ActorRequest,
+    @Query("closed") closed?: string,
+    @Query("awaitingAcknowledgement") awaiting?: string,
+  ) {
+    return this.alerts.list(req, closed === "true", awaiting === "true");
   }
   @Get("options") options(@Req() req: ActorRequest) {
     return this.alerts.options(req);
@@ -70,6 +74,18 @@ export class AlertsController {
   }
   @Get(":id") detail(@Req() req: ActorRequest, @Param("id") id: string) {
     return this.alerts.detail(req, parse(uuid, id));
+  }
+  @Post(":id/resolution-acknowledgements") acknowledge(
+    @Req() req: ActorRequest,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const input = parse(z.object({ resolutionEventId: uuid }).strict(), body);
+    return this.alerts.acknowledge(
+      req,
+      parse(uuid, id),
+      input.resolutionEventId,
+    );
   }
   @Post(":id/actions") action(
     @Req() req: ActorRequest,

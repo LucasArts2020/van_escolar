@@ -49,6 +49,22 @@ export type Journey = {
   }[];
 };
 export type ChildrenHome = {
+  pendingAcknowledgements?: number;
+  pendingJourneys: {
+    total: number;
+    page: number;
+    hasMore: boolean;
+    items: {
+      tripId: string;
+      passengerId: string;
+      studentId: string;
+      studentName: string;
+      date: string;
+      direction: string;
+      status: string;
+      level: number;
+    }[];
+  };
   children: {
     id: string;
     name: string;

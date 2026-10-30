@@ -47,7 +47,17 @@ export type AlertItem = {
   report_note: string | null;
   resolution_note: string | null;
   missingRoles: string[];
+  resolved_at?: string | null;
+  resolution_kind?: string | null;
+  resolution?: {
+    event_id: string;
+    actor_name: string;
+    occurred_at: string;
+  } | null;
+  receipt?: ResolutionReceipt | null;
   actions: {
+    requirements?: { id: string; label: string; met: boolean }[];
+    resolutionMode?: string;
     canAssume: boolean;
     canRecord: boolean;
     canResolve: boolean;
@@ -92,4 +102,26 @@ export const alertEventLabels: Record<string, string> = {
   CONTACT: "Contato registrado",
   VERIFICATION: "Verificação física registrada",
   RESOLVED: "Atendimento encerrado",
+};
+
+export type ResolutionReceipt = {
+  eventId: string;
+  missingRoles: string[];
+  pendingCount: number;
+  canAcknowledge: boolean;
+  recipients: {
+    name: string;
+    roles: string[];
+    acknowledgedAt: string | null;
+    revokedAt: string | null;
+    isMe: boolean;
+  }[];
+};
+export const resolutionKinds: Record<string, string> = {
+  NORMAL_CONFIRMATIONS: "Confirmações presenciais",
+  NORMAL_ACCOUNTING: "Contabilização por confirmações presenciais",
+  VERIFIED_FOLLOW_UP: "Atendimento verificado",
+  VERIFIED_ABSENCE: "Ausência verificada",
+  EXCEPTIONAL_ACCOUNTING: "Contabilização excepcional",
+  CORRECTION_REJECTED: "Correção rejeitada",
 };

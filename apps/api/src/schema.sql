@@ -310,3 +310,38 @@ CREATE TABLE IF NOT EXISTS exceptional_resolutions (
  CHECK(outcome<>'DELIVERED' OR (recipient_membership_id IS NOT NULL AND recipient_name IS NOT NULL))
 );
 ALTER TABLE notification_events ADD COLUMN IF NOT EXISTS resolution_id uuid UNIQUE REFERENCES exceptional_resolutions(id);
+CREATE TABLE IF NOT EXISTS alert_resolution_receipts (
+ event_id uuid PRIMARY KEY REFERENCES alert_events(id), case_id uuid NOT NULL REFERENCES alert_cases(id),
+ created_at timestamptz NOT NULL, missing_roles jsonb NOT NULL DEFAULT '[]'
+);
+CREATE TABLE IF NOT EXISTS alert_resolution_recipients (
+ event_id uuid NOT NULL REFERENCES alert_resolution_receipts(event_id), user_id uuid NOT NULL REFERENCES users(id),
+ name text NOT NULL, memberships jsonb NOT NULL, acknowledged_at timestamptz,
+ acknowledged_membership_id uuid REFERENCES memberships(id), revoked_at timestamptz,
+ PRIMARY KEY(event_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS alert_resolution_pending ON alert_resolution_recipients(user_id,event_id) WHERE acknowledged_at IS NULL AND revoked_at IS NULL;
+-- A revoked recipient is never silently reactivated or transferred, even if
+-- access is restored before the next read of the occurrence.
+CREATE OR REPLACE FUNCTION dispense_revoked_alert_receipts() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ UPDATE alert_resolution_recipients rr SET revoked_at=clock_timestamp()
+ FROM alert_resolution_receipts ar, alert_cases a, movements v, trip_passengers p, trips t, operating_links l
+ WHERE rr.event_id=ar.event_id AND a.id=ar.case_id AND v.id=a.movement_id AND p.id=v.passenger_id AND t.id=p.trip_id AND l.id=p.operating_link_id
+ AND rr.acknowledged_at IS NULL AND rr.revoked_at IS NULL AND (NOT p.active OR l.status<>'ACTIVE' OR NOT EXISTS(
+ SELECT 1 FROM memberships rm WHERE rm.active AND rm.user_id=rr.user_id AND rr.memberships @> jsonb_build_array(jsonb_build_object('id',rm.id::text)) AND (
+ (rm.role='DRIVER' AND rm.id=t.driver_membership_id AND rm.user_id=t.driver_user_id) OR
+ (rm.role='SCHOOL' AND rm.organization_id=p.school_id AND rm.coordinator) OR
+ (rm.role='GUARDIAN' AND EXISTS(SELECT 1 FROM guardian_links rg WHERE rg.student_id=p.student_id AND rg.user_id=rm.user_id AND rg.status='ACTIVE')))));
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS receipt_membership_revocation ON memberships;
+CREATE TRIGGER receipt_membership_revocation AFTER UPDATE OF active,coordinator ON memberships FOR EACH STATEMENT EXECUTE FUNCTION dispense_revoked_alert_receipts();
+DROP TRIGGER IF EXISTS receipt_guardian_revocation ON guardian_links;
+CREATE TRIGGER receipt_guardian_revocation AFTER UPDATE OF status,user_id ON guardian_links FOR EACH STATEMENT EXECUTE FUNCTION dispense_revoked_alert_receipts();
+DROP TRIGGER IF EXISTS receipt_link_revocation ON operating_links;
+CREATE TRIGGER receipt_link_revocation AFTER UPDATE OF status ON operating_links FOR EACH STATEMENT EXECUTE FUNCTION dispense_revoked_alert_receipts();
+DROP TRIGGER IF EXISTS receipt_driver_replacement ON trips;
+CREATE TRIGGER receipt_driver_replacement AFTER UPDATE OF driver_membership_id,driver_user_id ON trips FOR EACH STATEMENT EXECUTE FUNCTION dispense_revoked_alert_receipts();
+DROP TRIGGER IF EXISTS receipt_passenger_revocation ON trip_passengers;
+CREATE TRIGGER receipt_passenger_revocation AFTER UPDATE OF active ON trip_passengers FOR EACH STATEMENT EXECUTE FUNCTION dispense_revoked_alert_receipts();

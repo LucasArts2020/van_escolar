@@ -1,4 +1,5 @@
 "use client";
+import { planningLabel } from "../../shared/planning-presentation";
 import MovementsPanel from "./movements-panel";
 import TripClosure from "./trip-closure";
 import { createPlanningMaterializer } from "../../shared/materialize-planning";
@@ -23,15 +24,31 @@ import {
 } from "../../shared/trips";
 type Context = { id: string; role: "SCHOOL" | "DRIVER" | "GUARDIAN" };
 const empty: TripOptions = { plans: [], drivers: [], vehicles: [] };
-export default function TripsPanel({ context }: { context: Context }) {
+export default function TripsPanel({
+  context,
+  initialDate,
+  initialTripId = "",
+  initialDirection = "OUTBOUND",
+  initialPreparing = false,
+  managementOnly = false,
+  onPrepared,
+}: {
+  context: Context;
+  initialDate?: string;
+  initialTripId?: string;
+  initialDirection?: string;
+  initialPreparing?: boolean;
+  managementOnly?: boolean;
+  onPrepared?: (tripId: string, serviceDate: string) => void;
+}) {
   const materializePlanning = useRef(createPlanningMaterializer()).current;
   const driver = context.role === "DRIVER";
   const [date, setDate] = useState(""),
     [today, setToday] = useState(""),
-    [direction, setDirection] = useState("OUTBOUND");
+    [direction, setDirection] = useState(initialDirection);
   const [trips, setTrips] = useState<Trip[]>([]),
     [options, setOptions] = useState<TripOptions>(empty),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(initialTripId);
   const [planningOptions, setPlanningOptions] = useState<{
     links: { id: string; today: string }[];
   } | null>(null);
@@ -39,7 +56,7 @@ export default function TripsPanel({ context }: { context: Context }) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
-  const [preparing, setPreparing] = useState(false),
+  const [preparing, setPreparing] = useState(initialPreparing),
     [ids, setIds] = useState<string[]>([]),
     [vehicleId, setVehicleId] = useState(""),
     [driverId, setDriverId] = useState(""),
@@ -49,6 +66,9 @@ export default function TripsPanel({ context }: { context: Context }) {
     [extra, setExtra] = useState(""),
     [newDriver, setNewDriver] = useState(""),
     [newVehicle, setNewVehicle] = useState("");
+  useEffect(() => {
+    if (initialPreparing) setCreationId(crypto.randomUUID());
+  }, []);
   async function api<T>(
     path: string,
     body?: unknown,
@@ -102,7 +122,7 @@ export default function TripsPanel({ context }: { context: Context }) {
           setPlanningOptions(data);
           const value = data.links[0]?.today || data.defaultToday;
           setToday(value);
-          setDate(value);
+          setDate(initialDate || value);
         }
       })
       .catch((e) => {
@@ -164,13 +184,17 @@ export default function TripsPanel({ context }: { context: Context }) {
     setExtra("");
     setReasons({});
   }, [selected]);
-  async function run(fn: () => Promise<void>, message: string) {
+  async function run(
+    fn: () => Promise<void>,
+    message: string,
+    refreshAfter = true,
+  ) {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       await fn();
-      await refresh();
+      if (refreshAfter) await refresh();
       setNotice(message);
     } catch (e) {
       setError((e as Error).message);
@@ -425,7 +449,10 @@ export default function TripsPanel({ context }: { context: Context }) {
                           ? "Alteração em análise"
                           : p.locked_at
                             ? "Bloqueado"
-                            : planningLabels[p.status]}
+                            : planningLabel({
+                                status: p.status,
+                                routine_revision: p.routine_revision ?? null,
+                              })}
                     </span>
                   </label>
                 ))}
@@ -458,22 +485,27 @@ export default function TripsPanel({ context }: { context: Context }) {
                       reason("initial").trim().length < 10)
                   }
                   onClick={() =>
-                    run(async () => {
-                      const result = await api<{ id: string }>("trips", {
-                        id: creationId,
-                        date,
-                        direction,
-                        driverId,
-                        vehicleId,
-                        planIds: ids,
-                        ...(needsInitialException
-                          ? { exceptionReason: reason("initial") }
-                          : {}),
-                      });
-                      setSelected(result.id);
-                      setPreparing(false);
-                      setIds([]);
-                    }, "Viagem preparada. Revise os passageiros antes de iniciar.")
+                    run(
+                      async () => {
+                        const result = await api<{ id: string }>("trips", {
+                          id: creationId,
+                          date,
+                          direction,
+                          driverId,
+                          vehicleId,
+                          planIds: ids,
+                          ...(needsInitialException
+                            ? { exceptionReason: reason("initial") }
+                            : {}),
+                        });
+                        if (onPrepared) onPrepared(result.id, date);
+                        else setSelected(result.id);
+                        setPreparing(false);
+                        setIds([]);
+                      },
+                      "Viagem preparada. Revise os passageiros antes de iniciar.",
+                      !onPrepared,
+                    )
                   }
                 >
                   Salvar viagem planejada
@@ -536,15 +568,17 @@ export default function TripsPanel({ context }: { context: Context }) {
                   Cancelamento: {trip.cancellation_reason}
                 </p>
               )}
-              <TripClosure
-                trip={trip}
-                busy={busy}
-                onClose={(body) =>
-                  run(async () => {
-                    await api(`trips/${trip.id}/close`, body);
-                  }, "Conferência registrada. Confira o resultado do encerramento acima.")
-                }
-              />
+              {!managementOnly && (
+                <TripClosure
+                  trip={trip}
+                  busy={busy}
+                  onClose={(body) =>
+                    run(async () => {
+                      await api(`trips/${trip.id}/close`, body);
+                    }, "Conferência registrada. Confira o resultado do encerramento acima.")
+                  }
+                />
+              )}
               <div className="trip-passengers">
                 {trip.passengers.map((p) => (
                   <article
@@ -565,7 +599,14 @@ export default function TripsPanel({ context }: { context: Context }) {
                       <Users size={18} />
                     </div>
                     <p className="registry-note">
-                      Planejamento: {planningLabels[p.planning_status]}
+                      Planejamento:{" "}
+                      {planningLabel({
+                        status: p.planning_status,
+                        routine_revision:
+                          p.routine_revision === undefined
+                            ? 1
+                            : p.routine_revision,
+                      })}
                       {p.exceptional
                         ? " · Inclusão autorizada pelo transporte"
                         : ""}
@@ -573,21 +614,23 @@ export default function TripsPanel({ context }: { context: Context }) {
                     {p.reason && (
                       <p className="registry-note">Motivo: {p.reason}</p>
                     )}
-                    <MovementsPanel
-                      contextId={context.id}
-                      trip={trip}
-                      passenger={p}
-                      role={context.role}
-                      busy={busy}
-                      onConfirm={(kind) =>
-                        run(async () => {
-                          await api(
-                            `trips/${trip.id}/passengers/${p.id}/movements/${kind}/confirm`,
-                            {},
-                          );
-                        }, "Confirmação registrada para esta criança.")
-                      }
-                    />
+                    {!managementOnly && (
+                      <MovementsPanel
+                        contextId={context.id}
+                        trip={trip}
+                        passenger={p}
+                        role={context.role}
+                        busy={busy}
+                        onConfirm={(kind) =>
+                          run(async () => {
+                            await api(
+                              `trips/${trip.id}/passengers/${p.id}/movements/${kind}/confirm`,
+                              {},
+                            );
+                          }, "Confirmação registrada para esta criança.")
+                        }
+                      />
+                    )}
                     {p.link_status !== "ACTIVE" && (
                       <p className="message error">
                         Vínculo operacional inativo. Histórico preservado.
@@ -723,8 +766,11 @@ export default function TripsPanel({ context }: { context: Context }) {
                           {extraPlans.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.student_name} · {p.school_name} ·{" "}
-                              {planningLabels[p.status]} ·{" "}
-                              {p.student_id.slice(-8)}
+                              {planningLabel({
+                                status: p.status,
+                                routine_revision: p.routine_revision ?? null,
+                              })}{" "}
+                              · {p.student_id.slice(-8)}
                             </option>
                           ))}
                         </select>
@@ -944,7 +990,10 @@ export default function TripsPanel({ context }: { context: Context }) {
                       <small>
                         {p.pending_change
                           ? "Alteração em análise"
-                          : planningLabels[p.status]}
+                          : planningLabel({
+                              status: p.status,
+                              routine_revision: p.routine_revision ?? null,
+                            })}
                       </small>
                     </div>
                   ))}
